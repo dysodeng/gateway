@@ -60,7 +60,7 @@ gateway/
 │   ├── recovery.go              # [Pre-Route]
 │   ├── cors.go                  # [Pre-Route]
 │   ├── tracing.go               # [Pre-Route]
-│   ├── ipfilter.go              # [Pre-Route 全局 + Post-Route 路由级]
+│   ├── ipfilter.go              # 导出 NewGlobalIPFilter (Pre-Route) 和 NewRouteIPFilter (Post-Route)
 │   ├── auth.go                  # [Post-Route] JWT/APIKey/OAuth2
 │   ├── ratelimit.go             # [Post-Route]
 │   ├── requestsign.go           # [Post-Route]
@@ -177,6 +177,8 @@ routes:
         match:
           headers:
             x-user-group: "beta"
+      - weight: 5                    # 无 Header 条件，5% 全量流量随机分流
+        service: "user-service-v3"
 ```
 
 ### 匹配流程
@@ -283,9 +285,9 @@ auth_schemes:
   third_party:
     type: "oauth2"
     oauth2:
-      introspect_endpoint: ""     # Token 内省端点 (RFC 7662)
-      client_id: ""
-      client_secret: ""
+      introspect_endpoint: "${from_config_center}"  # Token 内省端点 (RFC 7662)
+      client_id: "${from_config_center}"
+      client_secret: "${from_config_center}"
       claims_to_headers:          # 内省结果注入 Header
         sub: "X-OAuth-Subject"
         scope: "X-OAuth-Scope"
@@ -351,6 +353,17 @@ request_sign:
   sign_header: "X-Signature"
   timestamp_header: "X-Timestamp"
   expire: 300                     # 签名有效期(秒)
+```
+
+全局配置定义签名参数，路由级通过 `middleware.request_sign.enabled` 控制是否启用：
+
+```yaml
+routes:
+  - name: "payment-api"
+    prefix: "/api/v1/payment"
+    middleware:
+      request_sign:
+        enabled: true
 ```
 
 ## 可观测性
@@ -453,14 +466,16 @@ health:
 
 `/health` 和 `/metrics` 端点绕过中间件链直接处理，不受认证、限流等影响。
 
-## 请求限制
+## Server 配置
 
 ```yaml
 server:
-  max_request_body_size: 10485760  # 10MB，0 表示不限制
+  listen: ":8080"                   # 监听地址
+  max_request_body_size: 10485760   # 10MB，0 表示不限制
+  shutdown_timeout: 30s             # 优雅关闭超时时间
 ```
 
-路由级别可覆盖全局设置。WebSocket 和 SSE 不受此限制。
+`max_request_body_size` 路由级别可覆盖全局设置，WebSocket 和 SSE 不受此限制。
 
 ## 优雅关闭
 
@@ -470,11 +485,6 @@ server:
 3. 停止配置中心 Watcher
 4. 停止服务发现 Watcher
 5. 关闭 OpenTelemetry exporter，flush 剩余 span
-
-```yaml
-server:
-  shutdown_timeout: 30s           # 优雅关闭超时时间
-```
 
 ## 部署
 

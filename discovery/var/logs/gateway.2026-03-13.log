@@ -1,0 +1,5 @@
+{"level":"INFO","ts":"2026-03-13 17:28:42","file":"/Users/dysodeng/project/go/gateway/discovery/etcd.go:290","msg":"服务实例上线","service":"user-svc","instance":"inst-1","addr":"10.0.0.1:8081"}
+{"level":"INFO","ts":"2026-03-13 17:28:42","file":"/Users/dysodeng/project/go/gateway/discovery/etcd.go:284","msg":"服务实例已更新","service":"user-svc","instance":"inst-1"}
+{"level":"WARN","ts":"2026-03-13 17:28:42","file":"/Users/dysodeng/project/go/gateway/discovery/etcd.go:303","msg":"服务实例下线","service":"user-svc","instance":"inst-1"}
+{"level":"WARN","ts":"2026-03-13 17:28:42","file":"/Users/dysodeng/project/go/gateway/discovery/etcd.go:303","msg":"服务实例下线","service":"user-svc","instance":"inst-1"}
+{"level":"WARN","ts":"2026-03-13 17:28:42","file":"/Users/dysodeng/project/go/gateway/discovery/etcd.go:313","msg":"服务无可用实例","service":"user-svc"}

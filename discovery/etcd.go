@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/dysodeng/gateway/config"
+	"github.com/dysodeng/gateway/pkg/logger"
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
@@ -87,11 +87,15 @@ func NewEtcdDiscovery(cfg *config.EtcdConfig) (*EtcdDiscovery, error) {
 	// 展示已注册的服务实例
 	d.mu.RLock()
 	if len(d.instances) == 0 {
-		slog.Info("当前无已注册的服务实例")
+		logger.Info(ctx, "当前无已注册的服务实例")
 	} else {
 		for name, instances := range d.instances {
 			for _, inst := range instances {
-				slog.Info("已注册服务实例", "service", name, "instance", inst.ID, "addr", inst.Addr())
+				logger.Info(ctx, "已注册服务实例",
+					logger.AddField("service", name),
+					logger.AddField("instance", inst.ID),
+					logger.AddField("addr", inst.Addr()),
+				)
 			}
 		}
 	}
@@ -127,7 +131,10 @@ func (d *EtcdDiscovery) loadAll(ctx context.Context, timeout time.Duration) erro
 
 		inst, err := d.parseValue(serviceName, instanceID, kv.Value)
 		if err != nil {
-			slog.Warn("解析 etcd 服务实例失败", "key", string(kv.Key), "error", err)
+			logger.Warn(ctx, "解析 etcd 服务实例失败",
+				logger.AddField("key", string(kv.Key)),
+				logger.ErrorField(err),
+			)
 			continue
 		}
 		instances[serviceName] = append(instances[serviceName], inst)
@@ -185,7 +192,7 @@ func (d *EtcdDiscovery) watchAll(ctx context.Context) {
 				return
 			}
 			if resp.Err() != nil {
-				slog.Error("etcd Watch 错误", "error", resp.Err())
+				logger.Error(ctx, "etcd Watch 错误", logger.ErrorField(resp.Err()))
 				continue
 			}
 			for _, ev := range resp.Events {
@@ -221,19 +228,19 @@ func (d *EtcdDiscovery) heartbeat(ctx context.Context) {
 				d.mu.Lock()
 				d.available = false
 				d.mu.Unlock()
-				slog.Error("etcd 连接断开，使用本地缓存继续服务", "error", err)
+				logger.Error(ctx, "etcd 连接断开，使用本地缓存继续服务", logger.ErrorField(err))
 
 			} else if err == nil && !wasAvailable {
 				// 不可用 -> 恢复
 				d.mu.Lock()
 				d.available = true
 				d.mu.Unlock()
-				slog.Info("etcd 连接恢复，重新同步服务实例")
+				logger.Info(ctx, "etcd 连接恢复，重新同步服务实例")
 
 				if loadErr := d.loadAll(ctx, d.timeout); loadErr != nil {
-					slog.Error("etcd 恢复后同步服务实例失败", "error", loadErr)
+					logger.Error(ctx, "etcd 恢复后同步服务实例失败", logger.ErrorField(loadErr))
 				} else {
-					slog.Info("etcd 服务实例同步完成")
+					logger.Info(ctx, "etcd 服务实例同步完成")
 				}
 			}
 		}
@@ -250,11 +257,16 @@ func (d *EtcdDiscovery) handleEvent(ev *clientv3.Event) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	ctx := context.Background()
+
 	switch ev.Type {
 	case clientv3.EventTypePut:
 		inst, err := d.parseValue(serviceName, instanceID, ev.Kv.Value)
 		if err != nil {
-			slog.Warn("解析 etcd Watch 事件失败", "key", string(ev.Kv.Key), "error", err)
+			logger.Warn(ctx, "解析 etcd Watch 事件失败",
+				logger.AddField("key", string(ev.Kv.Key)),
+				logger.ErrorField(err),
+			)
 			return
 		}
 		// 更新或新增实例
@@ -269,10 +281,17 @@ func (d *EtcdDiscovery) handleEvent(ev *clientv3.Event) {
 		}
 		if found {
 			d.instances[serviceName] = instances
-			slog.Info("服务实例已更新", "service", serviceName, "instance", instanceID)
+			logger.Info(ctx, "服务实例已更新",
+				logger.AddField("service", serviceName),
+				logger.AddField("instance", instanceID),
+			)
 		} else {
 			d.instances[serviceName] = append(instances, inst)
-			slog.Info("服务实例上线", "service", serviceName, "instance", instanceID, "addr", inst.Addr())
+			logger.Info(ctx, "服务实例上线",
+				logger.AddField("service", serviceName),
+				logger.AddField("instance", instanceID),
+				logger.AddField("addr", inst.Addr()),
+			)
 		}
 
 	case clientv3.EventTypeDelete:
@@ -281,14 +300,17 @@ func (d *EtcdDiscovery) handleEvent(ev *clientv3.Event) {
 		for i, existing := range instances {
 			if existing.ID == instanceID {
 				d.instances[serviceName] = append(instances[:i], instances[i+1:]...)
-				slog.Warn("服务实例下线", "service", serviceName, "instance", instanceID)
+				logger.Warn(ctx, "服务实例下线",
+					logger.AddField("service", serviceName),
+					logger.AddField("instance", instanceID),
+				)
 				break
 			}
 		}
 		// 如果服务下没有实例了，删除整个 key
 		if len(d.instances[serviceName]) == 0 {
 			delete(d.instances, serviceName)
-			slog.Warn("服务无可用实例", "service", serviceName)
+			logger.Warn(ctx, "服务无可用实例", logger.AddField("service", serviceName))
 		}
 	}
 }

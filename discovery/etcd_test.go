@@ -1,11 +1,18 @@
 package discovery
 
 import (
+	"os"
 	"testing"
 
+	"github.com/dysodeng/gateway/pkg/logger"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/api/v3/mvccpb"
 )
+
+func TestMain(m *testing.M) {
+	logger.InitLogger(false)
+	os.Exit(m.Run())
+}
 
 func TestEtcdDiscovery_parseKey(t *testing.T) {
 	d := &EtcdDiscovery{prefix: "/services/"}

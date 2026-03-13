@@ -68,12 +68,17 @@ server:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(path)
+	result, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
+	cfg := result.Config
+
 	if cfg.Server.Listen != ":7070" {
 		t.Errorf("Server.Listen = %q, want %q", cfg.Server.Listen, ":7070")
+	}
+	if result.Source != "local" {
+		t.Errorf("Source = %q, want %q", result.Source, "local")
 	}
 	// 验证默认值仍然生效
 	if cfg.Log.Level != "info" {

@@ -36,10 +36,11 @@ routes:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(path)
+	result, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
+	cfg := result.Config
 
 	if cfg.Server.Listen != ":9090" {
 		t.Errorf("Server.Listen = %q, want %q", cfg.Server.Listen, ":9090")
@@ -69,10 +70,11 @@ server:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(path)
+	result, err := Load(path)
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
+	cfg := result.Config
 
 	if cfg.Server.ShutdownTimeout == 0 {
 		t.Error("expected default ShutdownTimeout, got 0")

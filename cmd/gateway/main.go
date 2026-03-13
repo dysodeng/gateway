@@ -22,15 +22,16 @@ func main() {
 	configPath := flag.String("config", "gateway.yaml", "配置文件路径")
 	flag.Parse()
 
-	cfg, err := config.Load(*configPath)
+	result, err := config.Load(*configPath)
 	if err != nil {
 		slog.Error("加载配置失败", "error", err)
 		os.Exit(1)
 	}
+	cfg := result.Config
 
 	logger.InitLogger(cfg.Log.Debug)
 
-	slog.Info("配置加载完成", "config", *configPath)
+	slog.Info("配置加载完成", "source", result.Source, "path", result.SourcePath)
 
 	// 初始化各组件，收集 shutdown 函数
 	var shutdowns []func(context.Context) error
@@ -141,12 +142,26 @@ func printStartupInfo(cfg *config.Config) {
 		if routeType == "" {
 			routeType = "http"
 		}
-		slog.Info("  路由",
+		attrs := []any{
 			"name", route.Name,
 			"prefix", route.Prefix,
 			"service", route.Service,
 			"type", routeType,
 			"lb", route.LoadBalancer,
-		)
+			"timeout", route.Timeout,
+		}
+		if route.Middleware.Auth != nil {
+			attrs = append(attrs, "auth", route.Middleware.Auth.Scheme)
+			if route.Middleware.Auth.Optional {
+				attrs = append(attrs, "auth_optional", true)
+			}
+		}
+		if route.Middleware.RateLimit != nil && route.Middleware.RateLimit.Enabled {
+			attrs = append(attrs, "rate_limit", route.Middleware.RateLimit.QPS)
+		}
+		if route.Middleware.Rewrite != nil {
+			attrs = append(attrs, "rewrite", true)
+		}
+		slog.Info("  路由", attrs...)
 	}
 }

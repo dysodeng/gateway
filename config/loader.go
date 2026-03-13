@@ -11,11 +11,18 @@ import (
 	"github.com/spf13/viper"
 )
 
+// LoadResult 配置加载结果
+type LoadResult struct {
+	Config     *Config
+	Source     string // 配置来源: "local" 或配置中心类型如 "etcd"
+	SourcePath string // 配置路径: 本地文件路径或远程 key
+}
+
 // Load 从指定路径加载配置文件并应用默认值
 // 两阶段加载：
 //  1. 读本地 YAML 获取引导配置（含 config_center 连接信息）
 //  2. 如果配置了 config_center，从远程配置源拉取完整配置覆盖
-func Load(path string) (*Config, error) {
+func Load(path string) (*LoadResult, error) {
 	// 加载 .env 文件中的环境变量（文件不存在时忽略）
 	_ = godotenv.Load()
 
@@ -45,13 +52,17 @@ func Load(path string) (*Config, error) {
 			)
 		} else {
 			applyRouteDefaults(cfg)
-			return cfg, nil
+			return &LoadResult{
+				Config:     cfg,
+				Source:     source.Type(),
+				SourcePath: sourceKey(bootstrapCfg.ConfigCenter),
+			}, nil
 		}
 	}
 
 	// 回退：使用本地配置
 	applyRouteDefaults(bootstrapCfg)
-	return bootstrapCfg, nil
+	return &LoadResult{Config: bootstrapCfg, Source: "local", SourcePath: path}, nil
 }
 
 // configureEnvOverrides 配置环境变量覆盖
@@ -59,6 +70,15 @@ func configureEnvOverrides(v *viper.Viper) {
 	v.SetEnvPrefix("GATEWAY")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
+
+	// 显式绑定配置中心相关 key，确保即使本地 YAML 中没有 config_center section，
+	// 环境变量也能被正确识别
+	_ = v.BindEnv("config_center.type")
+	_ = v.BindEnv("config_center.etcd.endpoints")
+	_ = v.BindEnv("config_center.etcd.key")
+	_ = v.BindEnv("config_center.etcd.timeout")
+	_ = v.BindEnv("config_center.etcd.username")
+	_ = v.BindEnv("config_center.etcd.password")
 }
 
 // setDefaults 设置配置默认值
@@ -70,6 +90,20 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("health.path", "/health")
 	v.SetDefault("rate_limit.storage", "local")
 	v.SetDefault("rate_limit.algorithm", "sliding_window")
+}
+
+// sourceKey 从配置中心配置中提取远程配置路径
+func sourceKey(cc *ConfigCenterConfig) string {
+	if cc == nil {
+		return ""
+	}
+	switch cc.Type {
+	case "etcd":
+		if cc.Etcd != nil {
+			return cc.Etcd.Key
+		}
+	}
+	return ""
 }
 
 // createSource 根据配置中心配置创建对应的 Source

@@ -15,7 +15,7 @@ log:
 
 # OpenTelemetry 链路追踪
 telemetry:
-  enabled: true
+  enabled: false
   service_name: "gateway"            # 上报的服务名称
   exporter:
     type: "otlp"
@@ -27,7 +27,7 @@ telemetry:
 
 # OpenTelemetry 指标采集
 metrics:
-  enabled: true
+  enabled: false
   exporter:
     protocol: "grpc"                 # 导出协议: grpc 或 http
     endpoint: "localhost:4317"       # OTel Collector 地址

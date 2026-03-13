@@ -30,6 +30,8 @@ func main() {
 
 	logger.InitLogger(cfg.Log.Debug)
 
+	slog.Info("配置加载完成", "config", *configPath)
+
 	// 初始化各组件，收集 shutdown 函数
 	var shutdowns []func(context.Context) error
 
@@ -47,6 +49,9 @@ func main() {
 		shutdown := initMetrics(cfg)
 		shutdowns = append(shutdowns, shutdown)
 	}
+
+	// 打印启动摘要
+	printStartupInfo(cfg)
 
 	srv := server.New(cfg, disc)
 
@@ -85,6 +90,7 @@ func initDiscovery(cfg *config.Config) discovery.Discovery {
 			slog.Error("静态服务发现配置缺失")
 			os.Exit(1)
 		}
+		slog.Info("服务发现已初始化", "type", "static", "services", len(cfg.Discovery.Static.Services))
 		return discovery.NewStaticDiscovery(cfg.Discovery.Static)
 	case "etcd":
 		if cfg.Discovery.Etcd == nil {
@@ -96,6 +102,7 @@ func initDiscovery(cfg *config.Config) discovery.Discovery {
 			slog.Error("初始化 etcd 服务发现失败", "error", err)
 			os.Exit(1)
 		}
+		slog.Info("服务发现已初始化", "type", "etcd", "endpoints", cfg.Discovery.Etcd.Endpoints)
 		return disc
 	default:
 		slog.Error("不支持的服务发现类型", "type", cfg.Discovery.Type)
@@ -111,6 +118,7 @@ func initTelemetry(cfg *config.Config) func(context.Context) error {
 		slog.Error("初始化 OTel 链路追踪失败", "error", err)
 		os.Exit(1)
 	}
+	slog.Info("链路追踪已启用", "protocol", cfg.Telemetry.Exporter.Protocol, "endpoint", cfg.Telemetry.Exporter.Endpoint)
 	return shutdown
 }
 
@@ -121,5 +129,24 @@ func initMetrics(cfg *config.Config) func(context.Context) error {
 		slog.Error("初始化 OTel 指标采集失败", "error", err)
 		os.Exit(1)
 	}
+	slog.Info("指标采集已启用", "protocol", cfg.Metrics.Exporter.Protocol, "endpoint", cfg.Metrics.Exporter.Endpoint)
 	return shutdown
+}
+
+// printStartupInfo 打印启动摘要
+func printStartupInfo(cfg *config.Config) {
+	slog.Info("路由已加载", "count", len(cfg.Routes))
+	for _, route := range cfg.Routes {
+		routeType := route.Type
+		if routeType == "" {
+			routeType = "http"
+		}
+		slog.Info("  路由",
+			"name", route.Name,
+			"prefix", route.Prefix,
+			"service", route.Service,
+			"type", routeType,
+			"lb", route.LoadBalancer,
+		)
+	}
 }

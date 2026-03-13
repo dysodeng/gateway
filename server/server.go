@@ -87,8 +87,9 @@ func New(cfg *config.Config, disc discovery.Discovery) *Server {
 	)
 
 	// 健康检查端点绕过中间件
+	checkers := buildHealthCheckers(cfg, disc)
 	mux := http.NewServeMux()
-	mux.HandleFunc(cfg.Health.Path, health.Handler())
+	mux.HandleFunc(cfg.Health.Path, health.Handler(checkers...))
 	mux.Handle("/", preRoute(coreHandler))
 
 	s.httpServer = &http.Server{
@@ -167,4 +168,17 @@ func buildPostRouteMiddleware(cfg *config.Config, route *config.RouteConfig) mid
 		return func(next http.Handler) http.Handler { return next }
 	}
 	return middleware.Chain(mws...)
+}
+
+// buildHealthCheckers 根据配置构建健康检查器列表
+func buildHealthCheckers(cfg *config.Config, disc discovery.Discovery) []health.Checker {
+	var checkers []health.Checker
+	for _, check := range cfg.Health.Checks {
+		switch check.Name {
+		case "discovery":
+			pinger, _ := disc.(health.DiscoveryPinger)
+			checkers = append(checkers, health.NewDiscoveryChecker(pinger))
+		}
+	}
+	return checkers
 }

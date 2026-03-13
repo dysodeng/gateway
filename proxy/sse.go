@@ -5,6 +5,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strings"
 	"time"
 
@@ -34,98 +36,100 @@ func (p *SSEProxy) Configure(cfg *config.SSEConfig) {
 
 // Forward 将 SSE 请求转发到后端并实时推送给客户端
 func (p *SSEProxy) Forward(w http.ResponseWriter, r *http.Request, instance *discovery.ServiceInstance, stripPrefix bool, prefix string) {
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "不支持流式传输", http.StatusInternalServerError)
-		return
+	target := &url.URL{
+		Scheme: "http",
+		Host:   instance.Addr(),
 	}
 
-	path := r.URL.Path
-	if stripPrefix && prefix != "" {
-		path = strings.TrimPrefix(path, prefix)
-		if path == "" || path[0] != '/' {
-			path = "/" + path
-		}
-	}
-
-	backendURL := "http://" + instance.Addr() + path
-	if r.URL.RawQuery != "" {
-		backendURL += "?" + r.URL.RawQuery
-	}
-
-	backendReq, err := http.NewRequestWithContext(r.Context(), r.Method, backendURL, nil)
-	if err != nil {
-		slog.Error("SSE 创建请求失败", "error", err)
-		http.Error(w, "内部错误", http.StatusInternalServerError)
-		return
-	}
-
-	// 复制客户端请求头
-	for key, vals := range r.Header {
-		for _, v := range vals {
-			backendReq.Header.Add(key, v)
-		}
-	}
-
-	resp, err := http.DefaultClient.Do(backendReq)
-	if err != nil {
-		slog.Error("SSE 后端请求失败", "error", err)
-		http.Error(w, "后端服务不可用", http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	// 复制响应头
-	for key, vals := range resp.Header {
-		for _, v := range vals {
-			w.Header().Add(key, v)
-		}
-	}
-	w.WriteHeader(resp.StatusCode)
-
-	// 发送 retry 字段，配置客户端重连间隔
-	if p.retry > 0 {
-		fmt.Fprintf(w, "retry: %d\n\n", p.retry)
-		flusher.Flush()
-	}
-
-	// 启动 keepalive 心跳
-	done := make(chan struct{})
-	defer close(done)
-	if p.keepalive > 0 {
-		go func() {
-			ticker := time.NewTicker(p.keepalive)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					_, err := fmt.Fprint(w, ": keepalive\n\n")
-					if err != nil {
-						return
-					}
-					flusher.Flush()
-				case <-done:
-					return
-				case <-r.Context().Done():
-					return
+	proxy := &httputil.ReverseProxy{
+		// FlushInterval = -1 表示每次写入后立即 Flush，专为 SSE/流式场景设计
+		FlushInterval: -1,
+		Transport: &http.Transport{
+			DisableCompression: true, // 禁用 gzip，避免解码缓冲
+		},
+		Director: func(req *http.Request) {
+			req.URL.Scheme = target.Scheme
+			req.URL.Host = target.Host
+			req.Host = target.Host
+			if stripPrefix && prefix != "" {
+				req.URL.Path = strings.TrimPrefix(req.URL.Path, prefix)
+				if req.URL.Path == "" || req.URL.Path[0] != '/' {
+					req.URL.Path = "/" + req.URL.Path
 				}
 			}
-		}()
+			// 禁止后端返回压缩内容
+			req.Header.Del("Accept-Encoding")
+		},
+		ModifyResponse: func(resp *http.Response) error {
+			return p.injectSSEHeaders(resp)
+		},
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			slog.Error("SSE 后端请求失败", "error", err)
+			http.Error(w, "后端服务不可用", http.StatusBadGateway)
+		},
 	}
 
-	// 流式转发并实时刷新
-	buf := make([]byte, 4096)
-	for {
-		n, err := resp.Body.Read(buf)
-		if n > 0 {
-			_, _ = w.Write(buf[:n])
-			flusher.Flush()
+	// 启动 keepalive 心跳（需要在 proxy.ServeHTTP 之前设置，但 keepalive 需要 flusher）
+	// keepalive 通过 ModifyResponse 后在独立 goroutine 中发送
+	if p.keepalive > 0 {
+		if flusher, ok := w.(http.Flusher); ok {
+			done := make(chan struct{})
+			defer close(done)
+			go p.sendKeepalive(w, flusher, done, r.Context().Done())
 		}
-		if err != nil {
-			if err != io.EOF {
-				slog.Error("SSE 读取错误", "error", err)
+	}
+
+	proxy.ServeHTTP(w, r)
+}
+
+// injectSSEHeaders 在响应头中注入 retry 字段
+func (p *SSEProxy) injectSSEHeaders(resp *http.Response) error {
+	if p.retry > 0 {
+		// 将 retry 信息注入到响应体前面
+		original := resp.Body
+		resp.Body = &retryPrefixReader{
+			prefix: []byte(fmt.Sprintf("retry: %d\n\n", p.retry)),
+			reader: original,
+		}
+	}
+	return nil
+}
+
+// sendKeepalive 定期发送 keepalive 注释行
+func (p *SSEProxy) sendKeepalive(w http.ResponseWriter, flusher http.Flusher, done <-chan struct{}, ctxDone <-chan struct{}) {
+	ticker := time.NewTicker(p.keepalive)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if _, err := fmt.Fprint(w, ": keepalive\n\n"); err != nil {
+				return
 			}
+			flusher.Flush()
+		case <-done:
+			return
+		case <-ctxDone:
 			return
 		}
 	}
+}
+
+// retryPrefixReader 在原始 reader 前面插入 retry 前缀
+type retryPrefixReader struct {
+	prefix []byte
+	reader io.ReadCloser
+	offset int
+}
+
+func (r *retryPrefixReader) Read(p []byte) (int, error) {
+	if r.offset < len(r.prefix) {
+		n := copy(p, r.prefix[r.offset:])
+		r.offset += n
+		return n, nil
+	}
+	return r.reader.Read(p)
+}
+
+func (r *retryPrefixReader) Close() error {
+	return r.reader.Close()
 }

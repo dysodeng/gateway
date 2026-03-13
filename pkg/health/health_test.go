@@ -150,3 +150,38 @@ func TestNoCheckers(t *testing.T) {
 		t.Errorf("期望 checks 为空，实际得到 %v", checks)
 	}
 }
+
+// mockPinger 模拟 DiscoveryPinger
+type mockPinger struct {
+	err error
+}
+
+func (p *mockPinger) Ping(_ context.Context) error { return p.err }
+
+func TestDiscoveryChecker_Healthy(t *testing.T) {
+	checker := health.NewDiscoveryChecker(&mockPinger{err: nil})
+
+	if checker.Name() != "discovery" {
+		t.Errorf("Name() = %q, want %q", checker.Name(), "discovery")
+	}
+	if err := checker.Check(context.Background()); err != nil {
+		t.Errorf("Check() error: %v, want nil", err)
+	}
+}
+
+func TestDiscoveryChecker_Unhealthy(t *testing.T) {
+	checker := health.NewDiscoveryChecker(&mockPinger{err: errors.New("connection refused")})
+
+	if err := checker.Check(context.Background()); err == nil {
+		t.Error("Check() = nil, want error")
+	}
+}
+
+func TestDiscoveryChecker_NilPinger(t *testing.T) {
+	// pinger 为 nil 时应返回 nop checker，永远健康
+	checker := health.NewDiscoveryChecker(nil)
+
+	if err := checker.Check(context.Background()); err != nil {
+		t.Errorf("Check() error: %v, want nil for nil pinger", err)
+	}
+}

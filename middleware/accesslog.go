@@ -17,6 +17,18 @@ func (sw *statusWriter) WriteHeader(code int) {
 	sw.ResponseWriter.WriteHeader(code)
 }
 
+// Flush 转发 Flush 调用，确保 SSE 等流式场景能逐条刷新
+func (sw *statusWriter) Flush() {
+	if f, ok := sw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap 允许 http.ResponseController 等机制访问底层 ResponseWriter
+func (sw *statusWriter) Unwrap() http.ResponseWriter {
+	return sw.ResponseWriter
+}
+
 // NewAccessLog 创建访问日志中间件，记录每个请求的方法、路径、状态码和耗时
 func NewAccessLog() Middleware {
 	return func(next http.Handler) http.Handler {

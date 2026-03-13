@@ -252,3 +252,11 @@ func (d *EtcdDiscovery) Stop() error {
 	d.wg.Wait()
 	return d.client.Close()
 }
+
+// Ping 检测 etcd 连接是否可用（实现 health.DiscoveryPinger 接口）
+func (d *EtcdDiscovery) Ping(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	_, err := d.client.Get(ctx, "ping")
+	return err
+}

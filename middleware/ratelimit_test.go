@@ -70,6 +70,39 @@ func TestRateLimit_OverLimit(t *testing.T) {
 	}
 }
 
+// TestRateLimit_TokenBucket_OverLimit 验证令牌桶算法在令牌耗尽后返回 429
+func TestRateLimit_TokenBucket_OverLimit(t *testing.T) {
+	globalCfg := config.RateLimitConfig{
+		Storage:   "local",
+		Algorithm: "token_bucket",
+	}
+	routeCfg := config.RouteRateLimitConfig{
+		Enabled: true,
+		QPS:     3,
+	}
+	handler := NewRateLimit(globalCfg, routeCfg, "test-route-tb")(okHandler)
+
+	// 消耗所有 3 个令牌
+	for i := 0; i < 3; i++ {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.RemoteAddr = "127.0.0.1:4321"
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("第 %d 个请求期望状态码 %d，实际 %d", i+1, http.StatusOK, w.Code)
+		}
+	}
+
+	// 第 4 个请求应被限流
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:4321"
+	handler.ServeHTTP(w, req)
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("令牌桶超限请求期望状态码 %d，实际 %d", http.StatusTooManyRequests, w.Code)
+	}
+}
+
 // TestRateLimit_Disabled 验证限流禁用时，所有请求均通过（不受 QPS 限制）
 func TestRateLimit_Disabled(t *testing.T) {
 	globalCfg := config.RateLimitConfig{

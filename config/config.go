@@ -201,7 +201,8 @@ type RouteMiddlewareConfig struct {
 
 // RouteAuthConfig 路由认证中间件配置
 type RouteAuthConfig struct {
-	Scheme string `mapstructure:"scheme"`
+	Scheme   string `mapstructure:"scheme"`
+	Optional bool   `mapstructure:"optional"` // 可选认证：无 token 放行，有 token 则验证
 }
 
 // RouteRateLimitConfig 路由限流中间件配置

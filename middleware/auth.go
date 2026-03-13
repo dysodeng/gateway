@@ -11,14 +11,15 @@ import (
 )
 
 // NewAuth 创建认证中间件，根据认证方案类型分发到对应的认证逻辑
-func NewAuth(scheme config.AuthSchemeConfig) Middleware {
+// optional 为 true 时，无 token 放行，有 token 则验证
+func NewAuth(scheme config.AuthSchemeConfig, optional bool) Middleware {
 	switch scheme.Type {
 	case "jwt":
-		return newJWTAuth(scheme.JWT)
+		return newJWTAuth(scheme.JWT, optional)
 	case "api_key":
-		return newAPIKeyAuth(scheme.APIKey)
+		return newAPIKeyAuth(scheme.APIKey, optional)
 	case "oauth2":
-		return newOAuth2Auth(scheme.OAuth2)
+		return newOAuth2Auth(scheme.OAuth2, optional)
 	default:
 		// 未知认证类型，直接通过
 		return func(next http.Handler) http.Handler { return next }
@@ -26,7 +27,7 @@ func NewAuth(scheme config.AuthSchemeConfig) Middleware {
 }
 
 // newJWTAuth 创建 JWT 认证中间件
-func newJWTAuth(cfg *config.JWTConfig) Middleware {
+func newJWTAuth(cfg *config.JWTConfig, optional bool) Middleware {
 	if cfg == nil {
 		return func(next http.Handler) http.Handler { return next }
 	}
@@ -35,6 +36,10 @@ func newJWTAuth(cfg *config.JWTConfig) Middleware {
 			// 从请求头获取 token
 			authHeader := r.Header.Get(cfg.Header)
 			if authHeader == "" {
+				if optional {
+					next.ServeHTTP(w, r)
+					return
+				}
 				http.Error(w, "缺少认证信息", http.StatusUnauthorized)
 				return
 			}
@@ -90,7 +95,7 @@ func newJWTAuth(cfg *config.JWTConfig) Middleware {
 }
 
 // newAPIKeyAuth 创建 API Key 认证中间件
-func newAPIKeyAuth(cfg *config.APIKeyConfig) Middleware {
+func newAPIKeyAuth(cfg *config.APIKeyConfig, optional bool) Middleware {
 	if cfg == nil {
 		return func(next http.Handler) http.Handler { return next }
 	}
@@ -105,6 +110,10 @@ func newAPIKeyAuth(cfg *config.APIKeyConfig) Middleware {
 			}
 
 			if apiKey == "" {
+				if optional {
+					next.ServeHTTP(w, r)
+					return
+				}
 				http.Error(w, "缺少 API Key", http.StatusUnauthorized)
 				return
 			}
@@ -117,7 +126,7 @@ func newAPIKeyAuth(cfg *config.APIKeyConfig) Middleware {
 }
 
 // newOAuth2Auth 创建 OAuth2 Token 内省认证中间件 (RFC 7662)
-func newOAuth2Auth(cfg *config.OAuth2Config) Middleware {
+func newOAuth2Auth(cfg *config.OAuth2Config, optional bool) Middleware {
 	if cfg == nil {
 		return func(next http.Handler) http.Handler { return next }
 	}
@@ -126,6 +135,10 @@ func newOAuth2Auth(cfg *config.OAuth2Config) Middleware {
 			// 从 Authorization 头获取 Bearer token
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
+				if optional {
+					next.ServeHTTP(w, r)
+					return
+				}
 				http.Error(w, "缺少认证信息", http.StatusUnauthorized)
 				return
 			}

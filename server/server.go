@@ -145,7 +145,7 @@ func buildPostRouteMiddleware(cfg *config.Config, route *config.RouteConfig) mid
 	if route.Middleware.Auth != nil {
 		scheme, ok := cfg.AuthSchemes[route.Middleware.Auth.Scheme]
 		if ok {
-			mws = append(mws, middleware.NewAuth(scheme))
+			mws = append(mws, middleware.NewAuth(scheme, route.Middleware.Auth.Optional))
 		}
 	}
 

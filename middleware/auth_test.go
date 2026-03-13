@@ -22,7 +22,7 @@ func makeJWTHandler(cfg *config.JWTConfig) http.Handler {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	return newJWTAuth(cfg)(next)
+	return newJWTAuth(cfg, false)(next)
 }
 
 // signToken 生成 HS256 JWT 并签名
@@ -134,7 +134,7 @@ func makeAPIKeyHandler(cfg *config.APIKeyConfig) http.Handler {
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	return newAPIKeyAuth(cfg)(next)
+	return newAPIKeyAuth(cfg, false)(next)
 }
 
 // TestAPIKeyAuth_Header 验证通过请求头传递 API Key 能够正常通过
@@ -198,7 +198,7 @@ func makeOAuth2Handler(cfg *config.OAuth2Config) http.Handler {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	return newOAuth2Auth(cfg)(next)
+	return newOAuth2Auth(cfg, false)(next)
 }
 
 // TestOAuth2Auth_Valid 验证内省端点返回 active=true 时请求通过，并注入声明到请求头
@@ -261,5 +261,135 @@ func TestOAuth2Auth_Invalid(t *testing.T) {
 
 	if w.Code != http.StatusUnauthorized {
 		t.Errorf("期望状态码 401，实际: %d，响应: %s", w.Code, w.Body.String())
+	}
+}
+
+// --- 可选认证（Optional Auth）测试 ---
+
+// TestJWTAuth_Optional_NoToken 可选认证模式下无 token 应放行
+func TestJWTAuth_Optional_NoToken(t *testing.T) {
+	cfg := &config.JWTConfig{
+		Secret:     testJWTSecret,
+		Algorithms: []string{"HS256"},
+		Header:     "Authorization",
+	}
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := newJWTAuth(cfg, true)(next)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("可选认证无 token 应放行，期望 200，实际: %d", w.Code)
+	}
+}
+
+// TestJWTAuth_Optional_ValidToken 可选认证模式下合法 token 应通过并注入 claims
+func TestJWTAuth_Optional_ValidToken(t *testing.T) {
+	cfg := &config.JWTConfig{
+		Secret:     testJWTSecret,
+		Algorithms: []string{"HS256"},
+		Header:     "Authorization",
+		ClaimsToHeaders: map[string]string{
+			"user_id": "X-User-Id",
+		},
+	}
+
+	tokenStr, err := signToken(jwt.MapClaims{
+		"user_id": "456",
+		"exp":     time.Now().Add(time.Hour).Unix(),
+	})
+	if err != nil {
+		t.Fatalf("生成 JWT 失败: %v", err)
+	}
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		for key := range r.Header {
+			w.Header().Set(key, r.Header.Get(key))
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := newJWTAuth(cfg, true)(next)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenStr)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("期望 200，实际: %d", w.Code)
+	}
+	if got := w.Header().Get("X-User-Id"); got != "456" {
+		t.Errorf("期望 X-User-Id=456，实际: %q", got)
+	}
+}
+
+// TestJWTAuth_Optional_InvalidToken 可选认证模式下非法 token 应返回 401
+func TestJWTAuth_Optional_InvalidToken(t *testing.T) {
+	cfg := &config.JWTConfig{
+		Secret:     testJWTSecret,
+		Algorithms: []string{"HS256"},
+		Header:     "Authorization",
+	}
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := newJWTAuth(cfg, true)(next)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer invalid.token.here")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("可选认证非法 token 应返回 401，实际: %d", w.Code)
+	}
+}
+
+// TestAPIKeyAuth_Optional_NoKey 可选认证模式下无 API Key 应放行
+func TestAPIKeyAuth_Optional_NoKey(t *testing.T) {
+	cfg := &config.APIKeyConfig{
+		Header: "X-API-Key",
+		Query:  "api_key",
+	}
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := newAPIKeyAuth(cfg, true)(next)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("可选认证无 API Key 应放行，期望 200，实际: %d", w.Code)
+	}
+}
+
+// TestOAuth2Auth_Optional_NoToken 可选认证模式下无 token 应放行
+func TestOAuth2Auth_Optional_NoToken(t *testing.T) {
+	cfg := &config.OAuth2Config{
+		IntrospectEndpoint: "http://localhost/introspect",
+		ClientID:           "client-id",
+		ClientSecret:       "client-secret",
+	}
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := newOAuth2Auth(cfg, true)(next)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("可选认证无 token 应放行，期望 200，实际: %d", w.Code)
 	}
 }

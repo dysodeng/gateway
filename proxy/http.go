@@ -31,8 +31,8 @@ func (p *HTTPProxy) Forward(w http.ResponseWriter, r *http.Request, instance *di
 			req.Host = target.Host
 			if stripPrefix && prefix != "" {
 				req.URL.Path = strings.TrimPrefix(req.URL.Path, prefix)
-				if req.URL.Path == "" {
-					req.URL.Path = "/"
+				if req.URL.Path == "" || req.URL.Path[0] != '/' {
+					req.URL.Path = "/" + req.URL.Path
 				}
 			}
 		},

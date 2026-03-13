@@ -41,6 +41,17 @@ func main() {
 			os.Exit(1)
 		}
 		disc = discovery.NewStaticDiscovery(cfg.Discovery.Static)
+	case "etcd":
+		if cfg.Discovery.Etcd == nil {
+			slog.Error("etcd 服务发现配置缺失")
+			os.Exit(1)
+		}
+		var etcdErr error
+		disc, etcdErr = discovery.NewEtcdDiscovery(cfg.Discovery.Etcd)
+		if etcdErr != nil {
+			slog.Error("初始化 etcd 服务发现失败", "error", etcdErr)
+			os.Exit(1)
+		}
 	default:
 		slog.Error("不支持的服务发现类型", "type", cfg.Discovery.Type)
 		os.Exit(1)

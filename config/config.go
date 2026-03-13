@@ -269,5 +269,8 @@ type StaticInstanceConfig struct {
 // EtcdConfig etcd服务发现配置
 type EtcdConfig struct {
 	Endpoints []string      `mapstructure:"endpoints"`
+	Prefix    string        `mapstructure:"prefix"`
 	Timeout   time.Duration `mapstructure:"timeout"`
+	Username  string        `mapstructure:"username"`
+	Password  string        `mapstructure:"password"`
 }

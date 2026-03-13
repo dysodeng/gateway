@@ -13,6 +13,7 @@ import (
 	"github.com/dysodeng/gateway/config"
 	"github.com/dysodeng/gateway/discovery"
 	"github.com/dysodeng/gateway/pkg/logger"
+	"github.com/dysodeng/gateway/pkg/metrics"
 	"github.com/dysodeng/gateway/pkg/trace"
 	"github.com/dysodeng/gateway/server"
 )
@@ -56,6 +57,17 @@ func main() {
 		shutdownTracer = shutdown
 	}
 
+	// 初始化 OpenTelemetry 指标采集
+	var shutdownMetrics func(context.Context) error
+	if cfg.Metrics.Enabled {
+		shutdown, err := metrics.InitMetrics(cfg.Metrics)
+		if err != nil {
+			slog.Error("初始化 OTel 指标采集失败", "error", err)
+			os.Exit(1)
+		}
+		shutdownMetrics = shutdown
+	}
+
 	srv := server.New(cfg, disc)
 
 	// 优雅关闭
@@ -79,10 +91,17 @@ func main() {
 			}
 		}
 
-		// 刷新 OTel 数据
+		// 刷新 OTel 指标数据
+		if shutdownMetrics != nil {
+			if err = shutdownMetrics(ctx); err != nil {
+				slog.Error("关闭 OTel 指标采集失败", "error", err)
+			}
+		}
+
+		// 刷新 OTel 链路追踪数据
 		if shutdownTracer != nil {
 			if err = shutdownTracer(ctx); err != nil {
-				slog.Error("关闭 OTel 失败", "error", err)
+				slog.Error("关闭 OTel 链路追踪失败", "error", err)
 			}
 		}
 	}()

@@ -1,22 +1,20 @@
-// Package metrics 提供基于 OpenTelemetry 的 Prometheus 指标采集功能。
+// Package metrics 提供基于 OpenTelemetry OTLP 协议的指标采集功能。
 // 注册网关核心指标：请求总数、请求时延、活跃连接数、熔断器状态。
 package metrics
 
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
-	prometheusexporter "go.opentelemetry.io/otel/exporters/prometheus"
+	"github.com/dysodeng/gateway/config"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 // 全局 meter 实例，由 InitMetrics 初始化后供各函数使用
@@ -35,77 +33,89 @@ var (
 	// circuitBreakerState gateway_circuit_breaker_state 熔断器状态（标签：service, state）
 	circuitBreakerState metric.Int64UpDownCounter
 
-	// promRegistry 独立的 Prometheus 注册表，避免与全局默认注册表冲突（便于测试隔离）
-	promRegistry *prometheus.Registry
-
 	// initOnce 保证 InitMetrics 只真正初始化一次 meter 实例（线程安全）
 	initOnce sync.Once
 	initErr  error
+
+	// globalProvider 保存 MeterProvider 引用，用于 shutdown
+	globalProvider *sdkmetric.MeterProvider
 )
 
-// InitMetrics 初始化 OpenTelemetry MeterProvider（使用 Prometheus exporter），
-// 注册所有网关核心指标，并返回用于暴露 /metrics 端点的 http.Handler。
+// InitMetrics 初始化 OpenTelemetry MeterProvider（使用 OTLP exporter），
+// 注册所有网关核心指标，并返回 shutdown 函数用于优雅关闭时刷新指标数据。
 // 可多次调用，但 meter 实例仅初始化一次（线程安全）。
-func InitMetrics() (http.Handler, error) {
+func InitMetrics(cfg config.MetricsConfig) (shutdown func(context.Context) error, err error) {
 	initOnce.Do(func() {
-		// 创建独立的 Prometheus 注册表，避免全局注册表冲突
-		promRegistry = prometheus.NewRegistry()
+		ctx := context.Background()
 
-		// 创建 Prometheus exporter，指定使用独立注册表
-		exporter, err := prometheusexporter.New(
-			prometheusexporter.WithRegisterer(promRegistry),
-		)
-		if err != nil {
-			initErr = fmt.Errorf("创建 Prometheus exporter 失败: %w", err)
+		// 根据协议创建 OTLP metric exporter
+		var exporter sdkmetric.Exporter
+		switch cfg.Exporter.Protocol {
+		case "http":
+			exporter, initErr = otlpmetrichttp.New(ctx,
+				otlpmetrichttp.WithEndpoint(cfg.Exporter.Endpoint),
+				otlpmetrichttp.WithInsecure(),
+			)
+		default: // "grpc" 或默认协议
+			exporter, initErr = otlpmetricgrpc.New(ctx,
+				otlpmetricgrpc.WithEndpoint(cfg.Exporter.Endpoint),
+				otlpmetricgrpc.WithInsecure(),
+			)
+		}
+		if initErr != nil {
+			initErr = fmt.Errorf("创建 OTLP metric exporter 失败: %w", initErr)
 			return
 		}
 
-		// 构建 MeterProvider，关联 Prometheus exporter 作为 reader
-		provider := sdkmetric.NewMeterProvider(
-			sdkmetric.WithReader(exporter),
+		// 使用 PeriodicReader 定期推送指标
+		reader := sdkmetric.NewPeriodicReader(exporter)
+
+		// 构建 MeterProvider
+		globalProvider = sdkmetric.NewMeterProvider(
+			sdkmetric.WithReader(reader),
 		)
 
 		// 获取全局 meter 实例，Scope 名称使用模块路径
-		globalMeter = provider.Meter("github.com/dysodeng/gateway")
+		globalMeter = globalProvider.Meter("github.com/dysodeng/gateway")
 
 		// 注册 gateway_request_total 计数器
-		requestCounter, err = globalMeter.Int64Counter(
+		requestCounter, initErr = globalMeter.Int64Counter(
 			"gateway_request_total",
 			metric.WithDescription("网关处理的请求总数"),
 		)
-		if err != nil {
-			initErr = fmt.Errorf("创建 gateway_request_total 失败: %w", err)
+		if initErr != nil {
+			initErr = fmt.Errorf("创建 gateway_request_total 失败: %w", initErr)
 			return
 		}
 
 		// 注册 gateway_request_duration 直方图（单位：秒）
-		requestDuration, err = globalMeter.Float64Histogram(
+		requestDuration, initErr = globalMeter.Float64Histogram(
 			"gateway_request_duration",
 			metric.WithDescription("网关请求处理时延（秒）"),
 			metric.WithUnit("s"),
 		)
-		if err != nil {
-			initErr = fmt.Errorf("创建 gateway_request_duration 失败: %w", err)
+		if initErr != nil {
+			initErr = fmt.Errorf("创建 gateway_request_duration 失败: %w", initErr)
 			return
 		}
 
 		// 注册 gateway_active_connections UpDownCounter
-		activeConnections, err = globalMeter.Int64UpDownCounter(
+		activeConnections, initErr = globalMeter.Int64UpDownCounter(
 			"gateway_active_connections",
 			metric.WithDescription("当前活跃连接数（按连接类型区分）"),
 		)
-		if err != nil {
-			initErr = fmt.Errorf("创建 gateway_active_connections 失败: %w", err)
+		if initErr != nil {
+			initErr = fmt.Errorf("创建 gateway_active_connections 失败: %w", initErr)
 			return
 		}
 
 		// 注册 gateway_circuit_breaker_state UpDownCounter
-		circuitBreakerState, err = globalMeter.Int64UpDownCounter(
+		circuitBreakerState, initErr = globalMeter.Int64UpDownCounter(
 			"gateway_circuit_breaker_state",
 			metric.WithDescription("熔断器状态（按服务和状态区分）"),
 		)
-		if err != nil {
-			initErr = fmt.Errorf("创建 gateway_circuit_breaker_state 失败: %w", err)
+		if initErr != nil {
+			initErr = fmt.Errorf("创建 gateway_circuit_breaker_state 失败: %w", initErr)
 			return
 		}
 	})
@@ -114,10 +124,7 @@ func InitMetrics() (http.Handler, error) {
 		return nil, initErr
 	}
 
-	// 使用独立注册表的 HTTP handler 暴露指标
-	handler := promhttp.HandlerFor(promRegistry, promhttp.HandlerOpts{})
-
-	return handler, nil
+	return globalProvider.Shutdown, nil
 }
 
 // RecordRequest 记录一次 HTTP 请求的总数及时延。

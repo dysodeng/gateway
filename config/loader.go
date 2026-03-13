@@ -68,7 +68,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("log.level", "info")
 	v.SetDefault("log.output", "stdout")
 	v.SetDefault("health.path", "/health")
-	v.SetDefault("metrics.path", "/metrics")
 	v.SetDefault("rate_limit.storage", "local")
 	v.SetDefault("rate_limit.algorithm", "sliding_window")
 }

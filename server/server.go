@@ -10,7 +10,6 @@ import (
 	"github.com/dysodeng/gateway/discovery"
 	"github.com/dysodeng/gateway/middleware"
 	"github.com/dysodeng/gateway/pkg/health"
-	"github.com/dysodeng/gateway/pkg/metrics"
 	"github.com/dysodeng/gateway/proxy"
 	"github.com/dysodeng/gateway/router"
 	"github.com/dysodeng/gateway/router/loadbalancer"
@@ -87,17 +86,9 @@ func New(cfg *config.Config, disc discovery.Discovery) *Server {
 		middleware.NewGlobalIPFilter(cfg.IPFilter),
 	)
 
-	// 健康检查和指标端点绕过中间件
+	// 健康检查端点绕过中间件
 	mux := http.NewServeMux()
 	mux.HandleFunc(cfg.Health.Path, health.Handler())
-	if cfg.Metrics.Enabled {
-		metricsHandler, err := metrics.InitMetrics()
-		if err != nil {
-			slog.Error("初始化 metrics 失败", "error", err)
-		} else {
-			mux.Handle(cfg.Metrics.Path, metricsHandler)
-		}
-	}
 	mux.Handle("/", preRoute(coreHandler))
 
 	s.httpServer = &http.Server{

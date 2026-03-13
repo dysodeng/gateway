@@ -83,10 +83,10 @@ type SamplerConfig struct {
 	Ratio float64 `mapstructure:"ratio"`
 }
 
-// MetricsConfig Prometheus指标配置
+// MetricsConfig 指标采集配置（OTLP 协议导出）
 type MetricsConfig struct {
-	Enabled bool   `mapstructure:"enabled"`
-	Path    string `mapstructure:"path"`
+	Enabled  bool           `mapstructure:"enabled"`
+	Exporter ExporterConfig `mapstructure:"exporter"`
 }
 
 // HealthConfig 健康检查配置

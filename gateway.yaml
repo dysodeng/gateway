@@ -84,13 +84,13 @@ discovery:
         - host: "127.0.0.1"
           port: 8081
           weight: 1
-  # etcd:                            # etcd 服务发现配置示例
-  #   endpoints:
-  #     - "localhost:2379"
-  #   prefix: "/services"
-  #   timeout: 5s
-  #   username: ""
-  #   password: ""
+  etcd: # etcd 服务发现配置示例
+    endpoints:
+      - "localhost:2379"
+    prefix: "/services"
+    timeout: 5s
+    username: ""
+    password: ""
 
 # 路由配置
 routes:

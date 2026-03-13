@@ -15,19 +15,26 @@ import (
 
 // etcdInstance etcd 中存储的服务实例 JSON 结构
 type etcdInstance struct {
-	Host     string            `json:"host"`
-	Port     int               `json:"port"`
-	Weight   int               `json:"weight"`
-	Metadata map[string]string `json:"metadata,omitempty"`
+	ID           string            `json:"id"`
+	ServiceName  string            `json:"service_name"`
+	Host         string            `json:"host"`
+	Port         int               `json:"port"`
+	Weight       int               `json:"weight"`
+	Version      string            `json:"version,omitempty"`
+	Status       string            `json:"status"`
+	RegisteredAt string            `json:"registered_at"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
 }
 
 // EtcdDiscovery 基于 etcd 的服务发现实现
 type EtcdDiscovery struct {
-	client *clientv3.Client
-	prefix string
+	client  *clientv3.Client
+	prefix  string
+	timeout time.Duration
 
 	mu        sync.RWMutex
 	instances map[string][]ServiceInstance // serviceName -> instances
+	available bool                         // etcd 是否可用
 
 	cancel context.CancelFunc // 用于停止所有 Watch goroutine
 	wg     sync.WaitGroup     // 等待 Watch goroutine 退出
@@ -64,7 +71,9 @@ func NewEtcdDiscovery(cfg *config.EtcdConfig) (*EtcdDiscovery, error) {
 	d := &EtcdDiscovery{
 		client:    client,
 		prefix:    prefix,
+		timeout:   timeout,
 		instances: make(map[string][]ServiceInstance),
+		available: true,
 		cancel:    cancel,
 	}
 
@@ -75,9 +84,26 @@ func NewEtcdDiscovery(cfg *config.EtcdConfig) (*EtcdDiscovery, error) {
 		return nil, fmt.Errorf("加载 etcd 服务实例失败: %w", err)
 	}
 
+	// 展示已注册的服务实例
+	d.mu.RLock()
+	if len(d.instances) == 0 {
+		slog.Info("当前无已注册的服务实例")
+	} else {
+		for name, instances := range d.instances {
+			for _, inst := range instances {
+				slog.Info("已注册服务实例", "service", name, "instance", inst.ID, "addr", inst.Addr())
+			}
+		}
+	}
+	d.mu.RUnlock()
+
 	// 启动全局 Watch
 	d.wg.Add(1)
 	go d.watchAll(ctx)
+
+	// 启动 etcd 心跳探测
+	d.wg.Add(1)
+	go d.heartbeat(ctx)
 
 	return d, nil
 }
@@ -133,12 +159,15 @@ func (d *EtcdDiscovery) parseValue(serviceName, instanceID string, value []byte)
 		return ServiceInstance{}, fmt.Errorf("JSON 反序列化失败: %w", err)
 	}
 	return ServiceInstance{
-		ID:       instanceID,
-		Name:     serviceName,
-		Host:     inst.Host,
-		Port:     inst.Port,
-		Weight:   inst.Weight,
-		Metadata: inst.Metadata,
+		ID:           instanceID,
+		Name:         serviceName,
+		Host:         inst.Host,
+		Port:         inst.Port,
+		Weight:       inst.Weight,
+		Version:      inst.Version,
+		Status:       inst.Status,
+		RegisteredAt: inst.RegisteredAt,
+		Metadata:     inst.Metadata,
 	}, nil
 }
 
@@ -161,6 +190,51 @@ func (d *EtcdDiscovery) watchAll(ctx context.Context) {
 			}
 			for _, ev := range resp.Events {
 				d.handleEvent(ev)
+			}
+		}
+	}
+}
+
+// heartbeat 定期探测 etcd 可用性
+// 断连时保留本地缓存继续服务，恢复后重新加载全量数据
+func (d *EtcdDiscovery) heartbeat(ctx context.Context) {
+	defer d.wg.Done()
+
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			checkCtx, cancel := context.WithTimeout(ctx, d.timeout)
+			_, err := d.client.Get(checkCtx, "heartbeat")
+			cancel()
+
+			d.mu.Lock()
+			wasAvailable := d.available
+			d.mu.Unlock()
+
+			if err != nil && wasAvailable {
+				// 可用 -> 不可用
+				d.mu.Lock()
+				d.available = false
+				d.mu.Unlock()
+				slog.Error("etcd 连接断开，使用本地缓存继续服务", "error", err)
+
+			} else if err == nil && !wasAvailable {
+				// 不可用 -> 恢复
+				d.mu.Lock()
+				d.available = true
+				d.mu.Unlock()
+				slog.Info("etcd 连接恢复，重新同步服务实例")
+
+				if loadErr := d.loadAll(ctx, d.timeout); loadErr != nil {
+					slog.Error("etcd 恢复后同步服务实例失败", "error", loadErr)
+				} else {
+					slog.Info("etcd 服务实例同步完成")
+				}
 			}
 		}
 	}
@@ -195,8 +269,10 @@ func (d *EtcdDiscovery) handleEvent(ev *clientv3.Event) {
 		}
 		if found {
 			d.instances[serviceName] = instances
+			slog.Info("服务实例已更新", "service", serviceName, "instance", instanceID)
 		} else {
 			d.instances[serviceName] = append(instances, inst)
+			slog.Info("服务实例上线", "service", serviceName, "instance", instanceID, "addr", inst.Addr())
 		}
 
 	case clientv3.EventTypeDelete:
@@ -205,12 +281,14 @@ func (d *EtcdDiscovery) handleEvent(ev *clientv3.Event) {
 		for i, existing := range instances {
 			if existing.ID == instanceID {
 				d.instances[serviceName] = append(instances[:i], instances[i+1:]...)
+				slog.Warn("服务实例下线", "service", serviceName, "instance", instanceID)
 				break
 			}
 		}
 		// 如果服务下没有实例了，删除整个 key
 		if len(d.instances[serviceName]) == 0 {
 			delete(d.instances, serviceName)
+			slog.Warn("服务无可用实例", "service", serviceName)
 		}
 	}
 }

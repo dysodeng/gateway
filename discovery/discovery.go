@@ -4,12 +4,15 @@ import "fmt"
 
 // ServiceInstance 表示一个后端服务实例
 type ServiceInstance struct {
-	ID       string
-	Name     string
-	Host     string
-	Port     int
-	Weight   int
-	Metadata map[string]string
+	ID           string
+	Name         string
+	Host         string
+	Port         int
+	Weight       int
+	Version      string
+	Status       string
+	RegisteredAt string
+	Metadata     map[string]string
 }
 
 // Addr 返回 host:port 格式的地址

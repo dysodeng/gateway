@@ -28,7 +28,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger.InitLogger(cfg.Log.Level == "debug")
+	logger.InitLogger(cfg.Log.Debug)
 
 	// 初始化各组件，收集 shutdown 函数
 	var shutdowns []func(context.Context) error

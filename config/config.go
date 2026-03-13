@@ -49,9 +49,8 @@ type ServerConfig struct {
 
 // LogConfig 日志配置
 type LogConfig struct {
-	Level  string        `mapstructure:"level"`
-	Output string        `mapstructure:"output"`
-	File   LogFileConfig `mapstructure:"file"`
+	Debug bool   `mapstructure:"debug"`
+	Level string `mapstructure:"level"`
 }
 
 // LogFileConfig 日志文件配置

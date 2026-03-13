@@ -1,64 +1,81 @@
+# ============================================================
+# 网关配置文件
+# ============================================================
+
+# 服务器配置
 server:
-  listen: ":8080"
-  max_request_body_size: 10485760
-  shutdown_timeout: 30s
+  listen: ":8080"                    # 监听地址
+  max_request_body_size: 10485760    # 请求体最大字节数（10MB）
+  shutdown_timeout: 30s              # 优雅关闭超时时间
 
+# 日志配置
 log:
-  debug: true
-  level: "info"
-  output: "stdout"
+  debug: true                        # 是否开启 debug 模式
+  level: "info"                      # 日志级别: debug, info, warn, error
 
+# OpenTelemetry 链路追踪
 telemetry:
   enabled: true
-  service_name: "gateway"
+  service_name: "gateway"            # 上报的服务名称
   exporter:
     type: "otlp"
-    protocol: "grpc"
-    endpoint: "localhost:4317"
+    protocol: "grpc"                 # 导出协议: grpc 或 http
+    endpoint: "localhost:4317"       # OTel Collector 地址
   sampler:
-    type: "ratio"
-    ratio: 0.1
+    type: "ratio"                    # 采样策略: always, never, ratio
+    ratio: 0.1                       # 采样比例（ratio 模式下生效）
 
+# OpenTelemetry 指标采集
 metrics:
   enabled: true
-  path: "/metrics"
+  exporter:
+    protocol: "grpc"                 # 导出协议: grpc 或 http
+    endpoint: "localhost:4317"       # OTel Collector 地址
 
+# 健康检查
 health:
-  path: "/health"
+  path: "/health"                    # 健康检查端点路径
   check:
-    - name: "discovery"
+    - name: "discovery"              # 检查项: 服务发现可用性
 
+# 跨域资源共享（CORS）
 cors:
-  allowed_origins: ["*"]
+  allowed_origins: ["*"]             # 允许的来源域名，* 表示全部
   allowed_methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
   allowed_headers: ["Authorization", "Content-Type"]
-  max_age: 3600
+  max_age: 3600                      # 预检请求缓存时间（秒）
 
+# IP 过滤
 ip_filter:
-  mode: "blacklist"
-  list: []
+  mode: "blacklist"                  # 过滤模式: blacklist（黑名单）或 whitelist（白名单）
+  list: []                           # IP 列表
 
+# 限流
 rate_limit:
-  storage: "local"
-  algorithm: "sliding_window"
+  storage: "local"                   # 存储方式: local（本地内存）
+  algorithm: "sliding_window"        # 限流算法: sliding_window（滑动窗口）
 
+# 请求签名验证
 request_sign:
-  enabled: false
-  algorithm: "hmac-sha256"
-  sign_header: "X-Signature"
-  timestamp_header: "X-Timestamp"
-  expire: 300
+  enabled: false                     # 是否启用请求签名
+  algorithm: "hmac-sha256"           # 签名算法
+  sign_header: "X-Signature"         # 签名请求头
+  timestamp_header: "X-Timestamp"    # 时间戳请求头
+  expire: 300                        # 签名有效期（秒）
 
+# 认证方案定义
 auth_schemes:
-  app_user:
+  app_user:                          # 方案名称，路由中通过 scheme 引用
     type: "jwt"
     jwt:
-      secret: "your-secret-key"
-      algorithms: ["HS256"]
-      header: "Authorization"
-      claims_to_headers:
+      secret: "your-secret-key"      # JWT 密钥
+      algorithms: ["HS256"]          # 签名算法
+      header: "Authorization"        # 携带 token 的请求头
+      claims_to_headers:             # 将 JWT claims 映射到请求头传递给后端
         user_id: "X-User-Id"
 
+# 服务发现
+# type: static（静态配置）或 etcd（etcd 注册中心）
 discovery:
   type: "static"
   static:
@@ -67,13 +84,21 @@ discovery:
         - host: "127.0.0.1"
           port: 8081
           weight: 1
+  # etcd:                            # etcd 服务发现配置示例
+  #   endpoints:
+  #     - "localhost:2379"
+  #   prefix: "/services"
+  #   timeout: 5s
+  #   username: ""
+  #   password: ""
 
+# 路由配置
 routes:
-  - name: "user-service"
-    prefix: "/api/v1/users"
-    service: "user-service"
-    timeout: 5s
-    load_balancer: "round_robin"
-    middleware:
+  - name: "user-service"             # 路由名称
+    prefix: "/api/v1/users"          # 匹配的 URL 前缀
+    service: "user-service"          # 对应的后端服务名（discovery 中定义）
+    timeout: 5s                      # 请求超时时间
+    load_balancer: "round_robin"     # 负载均衡策略: round_robin, random, weighted
+    middleware:                       # 路由级中间件
       auth:
-        scheme: "app_user"
+        scheme: "app_user"           # 引用 auth_schemes 中定义的认证方案

@@ -110,9 +110,10 @@ type RedisConfig struct {
 type RequestSignConfig struct {
 	Enabled         bool   `yaml:"enabled"`
 	Algorithm       string `yaml:"algorithm"`
-	SignHeader      string `yaml:"sign_header"`
-	TimestampHeader string `yaml:"timestamp_header"`
-	Expire          int    `yaml:"expire"`
+	SignHeader      string `yaml:"sign_header"`       // 签名请求头名称，默认 "X-Signature"
+	TimestampHeader string `yaml:"timestamp_header"`  // 时间戳请求头名称，默认 "X-Timestamp"
+	Expire          int    `yaml:"expire"`            // 签名有效期（秒）
+	Secret          string `yaml:"secret"`            // HMAC 签名密钥
 }
 
 // AuthSchemeConfig 认证方案配置
@@ -174,6 +175,7 @@ type RouteMiddlewareConfig struct {
 	RateLimit   *RouteRateLimitConfig   `yaml:"rate_limit,omitempty"`
 	RequestSign *RouteRequestSignConfig `yaml:"request_sign,omitempty"`
 	IPFilter    *IPFilterConfig         `yaml:"ip_filter,omitempty"`
+	Rewrite     *RouteRewriteConfig     `yaml:"rewrite,omitempty"`
 }
 
 // RouteAuthConfig 路由认证中间件配置
@@ -190,6 +192,12 @@ type RouteRateLimitConfig struct {
 // RouteRequestSignConfig 路由请求签名中间件配置
 type RouteRequestSignConfig struct {
 	Enabled bool `yaml:"enabled"`
+}
+
+// RouteRewriteConfig 路由重写中间件配置
+type RouteRewriteConfig struct {
+	AddHeaders    map[string]string `yaml:"add_headers"`    // 需要注入到请求的请求头
+	RemoveHeaders []string          `yaml:"remove_headers"` // 需要从请求中移除的请求头
 }
 
 // CanaryRuleConfig 灰度发布规则配置

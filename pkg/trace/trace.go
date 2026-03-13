@@ -8,6 +8,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -63,6 +64,9 @@ func InitProvider(cfg config.TelemetryConfig) (shutdown func(context.Context) er
 	)
 
 	otel.SetTracerProvider(tp)
+
+	// 注册 W3C TraceContext 传播器，支持从上游请求头提取/注入 trace context
+	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	return tp.Shutdown, nil
 }

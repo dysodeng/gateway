@@ -30,7 +30,7 @@ gateway/
 │   ├── config.go                          # Config struct definitions (all YAML sections)
 │   ├── config_test.go                     # Config loading tests
 │   ├── loader.go                          # YAML file loading + validation
-│   └── watcher.go                         # ConfigWatcher interface
+│   └── watcher.go                         # Config Watcher interface
 ├── discovery/
 │   ├── discovery.go                       # Discovery interface + ServiceInstance type
 │   ├── static.go                          # Static file-based discovery
@@ -651,22 +651,22 @@ git commit -m "feat: add config file loading with defaults"
 
 ---
 
-### Task 4: ConfigWatcher interface
+### Task 4: Watcher interface
 
 **Files:**
 - Create: `config/watcher.go`
 
-- [ ] **Step 1: Write ConfigWatcher interface**
+- [ ] **Step 1: Write Watcher interface**
 
 Create `config/watcher.go`:
 
 ```go
 package config
 
-// ConfigWatcher defines the interface for dynamic configuration sources.
+// Watcher defines the interface for dynamic configuration sources.
 // Implementations include etcd, nacos, etc. The gateway uses this to
 // hot-reload routes, rate limits, canary rules, and auth schemes.
-type ConfigWatcher interface {
+type Watcher interface {
 	Get(key string) ([]byte, error)
 	Watch(key string, callback func(value []byte)) error
 	Stop() error
@@ -682,7 +682,7 @@ Expected: No errors.
 
 ```bash
 git add config/watcher.go
-git commit -m "feat: add ConfigWatcher interface"
+git commit -m "feat: add Watcher interface"
 ```
 
 ---

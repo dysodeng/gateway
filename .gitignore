@@ -28,3 +28,6 @@ go.work.sum
 # ide
 .idea
 
+# build output
+/gateway
+

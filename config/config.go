@@ -2,6 +2,12 @@ package config
 
 import "time"
 
+const (
+	VarPath  string = "var"
+	LogPath         = VarPath + "/logs"
+	TempPath        = VarPath + "/tmp"
+)
+
 // Config 网关顶层配置结构
 type Config struct {
 	ConfigCenter *ConfigCenterConfig         `mapstructure:"config_center,omitempty"`
@@ -28,7 +34,7 @@ type ConfigCenterConfig struct {
 // EtcdSourceConfig etcd配置中心连接配置
 type EtcdSourceConfig struct {
 	Endpoints []string      `mapstructure:"endpoints"`
-	Key       string        `mapstructure:"key"`      // 存储完整配置的 key，如 "/gateway/config"
+	Key       string        `mapstructure:"key"` // 存储完整配置的 key，如 "/gateway/config"
 	Timeout   time.Duration `mapstructure:"timeout"`
 	Username  string        `mapstructure:"username"`
 	Password  string        `mapstructure:"password"`
@@ -126,10 +132,10 @@ type RedisConfig struct {
 type RequestSignConfig struct {
 	Enabled         bool   `mapstructure:"enabled"`
 	Algorithm       string `mapstructure:"algorithm"`
-	SignHeader      string `mapstructure:"sign_header"`       // 签名请求头名称，默认 "X-Signature"
-	TimestampHeader string `mapstructure:"timestamp_header"`  // 时间戳请求头名称，默认 "X-Timestamp"
-	Expire          int    `mapstructure:"expire"`            // 签名有效期（秒）
-	Secret          string `mapstructure:"secret"`            // HMAC 签名密钥
+	SignHeader      string `mapstructure:"sign_header"`      // 签名请求头名称，默认 "X-Signature"
+	TimestampHeader string `mapstructure:"timestamp_header"` // 时间戳请求头名称，默认 "X-Timestamp"
+	Expire          int    `mapstructure:"expire"`           // 签名有效期（秒）
+	Secret          string `mapstructure:"secret"`           // HMAC 签名密钥
 }
 
 // AuthSchemeConfig 认证方案配置
@@ -172,7 +178,7 @@ type RouteConfig struct {
 	Timeout            time.Duration         `mapstructure:"timeout"`
 	Retry              RetryConfig           `mapstructure:"retry"`
 	LoadBalancer       string                `mapstructure:"load_balancer"`
-	Middleware         RouteMiddlewareConfig  `mapstructure:"middleware"`
+	Middleware         RouteMiddlewareConfig `mapstructure:"middleware"`
 	Canary             []CanaryRuleConfig    `mapstructure:"canary"`
 	WebSocket          *WebSocketConfig      `mapstructure:"websocket,omitempty"`
 	SSE                *SSEConfig            `mapstructure:"sse,omitempty"`

@@ -12,7 +12,7 @@ import (
 
 	"github.com/dysodeng/gateway/config"
 	"github.com/dysodeng/gateway/discovery"
-	pkglog "github.com/dysodeng/gateway/pkg/log"
+	"github.com/dysodeng/gateway/pkg/logger"
 	"github.com/dysodeng/gateway/pkg/trace"
 	"github.com/dysodeng/gateway/server"
 )
@@ -29,10 +29,7 @@ func main() {
 	}
 
 	// 初始化日志
-	if err = pkglog.InitLogger(cfg.Log); err != nil {
-		slog.Error("初始化日志失败", "error", err)
-		os.Exit(1)
-	}
+	logger.InitLogger(cfg.Log.Level == "debug")
 
 	// 初始化服务发现
 	var disc discovery.Discovery

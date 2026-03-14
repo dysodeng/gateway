@@ -13,9 +13,10 @@ import (
 
 // LoadResult 配置加载结果
 type LoadResult struct {
-	Config     *Config
-	Source     string // 配置来源: "local" 或配置中心类型如 "etcd"
-	SourcePath string // 配置路径: 本地文件路径或远程 key
+	Config      *Config
+	Source      string // 配置来源: "local" 或配置中心类型如 "etcd"
+	SourcePath  string // 配置路径: 本地文件路径或远程 key
+	WatchSource Source // 可 Watch 的配置源（仅配置中心模式下非 nil）
 }
 
 // Load 从指定路径加载配置文件并应用默认值
@@ -53,9 +54,10 @@ func Load(path string) (*LoadResult, error) {
 		} else {
 			applyRouteDefaults(cfg)
 			return &LoadResult{
-				Config:     cfg,
-				Source:     source.Type(),
-				SourcePath: sourceKey(bootstrapCfg.ConfigCenter),
+				Config:      cfg,
+				Source:      source.Type(),
+				SourcePath:  sourceKey(bootstrapCfg.ConfigCenter),
+				WatchSource: source,
 			}, nil
 		}
 	}
@@ -129,18 +131,22 @@ func loadFromSource(source Source) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseConfig(data)
+}
 
+// parseConfig 将 YAML 字节流解析为 Config
+func parseConfig(data []byte) (*Config, error) {
 	v := viper.New()
 	v.SetConfigType("yaml")
 	setDefaults(v)
 
 	if err := v.ReadConfig(bytes.NewReader(data)); err != nil {
-		return nil, fmt.Errorf("解析远程配置失败: %w", err)
+		return nil, fmt.Errorf("解析配置失败: %w", err)
 	}
 
 	cfg := &Config{}
 	if err := v.Unmarshal(cfg); err != nil {
-		return nil, fmt.Errorf("反序列化远程配置失败: %w", err)
+		return nil, fmt.Errorf("反序列化配置失败: %w", err)
 	}
 	return cfg, nil
 }

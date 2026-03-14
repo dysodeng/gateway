@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +20,10 @@ func (m *mockSource) Load() ([]byte, error) {
 
 func (m *mockSource) Type() string {
 	return "mock"
+}
+
+func (m *mockSource) Watch(_ context.Context) (<-chan []byte, error) {
+	return make(chan []byte), nil
 }
 
 func TestLoadFromSource(t *testing.T) {

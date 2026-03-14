@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"sync/atomic"
 
 	"github.com/dysodeng/gateway/config"
 	"github.com/dysodeng/gateway/discovery"
@@ -20,17 +21,57 @@ type Server struct {
 	cfg        *config.Config
 	httpServer *http.Server
 	discovery  discovery.Discovery
+	handler    atomic.Value // 存储 http.Handler
+	healthPath string
 }
 
 // New 创建网关服务器，组装完整的请求处理管线
 func New(cfg *config.Config, disc discovery.Discovery) *Server {
-	s := &Server{cfg: cfg, discovery: disc}
+	s := &Server{
+		cfg:        cfg,
+		discovery:  disc,
+		healthPath: cfg.Health.Path,
+	}
 
+	h := s.buildHandler(cfg)
+	s.handler.Store(h)
+
+	s.httpServer = &http.Server{
+		Addr: cfg.Server.Listen,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			s.handler.Load().(http.Handler).ServeHTTP(w, r)
+		}),
+	}
+	return s
+}
+
+// Reload 热更新配置，重建请求处理管线并原子替换
+func (s *Server) Reload(newCfg *config.Config) {
+	if newCfg.Server.Listen != s.cfg.Server.Listen {
+		slog.Warn("server.listen 变更需要重启才能生效",
+			"current", s.cfg.Server.Listen,
+			"new", newCfg.Server.Listen,
+		)
+	}
+	if newCfg.Discovery.Type != s.cfg.Discovery.Type {
+		slog.Warn("discovery.type 变更需要重启才能生效",
+			"current", s.cfg.Discovery.Type,
+			"new", newCfg.Discovery.Type,
+		)
+	}
+
+	h := s.buildHandler(newCfg)
+	s.handler.Store(h)
+	s.cfg = newCfg
+	slog.Info("配置热更新完成", "routes", len(newCfg.Routes))
+}
+
+// buildHandler 根据配置构建完整的请求处理管线
+func (s *Server) buildHandler(cfg *config.Config) http.Handler {
 	r := router.New(cfg.Routes)
 	dispatcher := proxy.NewDispatcher()
-
-	// 构建每条路由的负载均衡器
 	balancers := buildBalancers(cfg.Routes)
+	disc := s.discovery
 
 	// 核心处理器：路由匹配 → 后置中间件 → 代理转发
 	coreHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -89,15 +130,9 @@ func New(cfg *config.Config, disc discovery.Discovery) *Server {
 	// 健康检查端点绕过中间件
 	checkers := buildHealthCheckers(cfg, disc)
 	mux := http.NewServeMux()
-	mux.HandleFunc(cfg.Health.Path, health.Handler(checkers...))
+	mux.HandleFunc(s.healthPath, health.Handler(checkers...))
 	mux.Handle("/", preRoute(coreHandler))
-
-	s.httpServer = &http.Server{
-		Addr:    cfg.Server.Listen,
-		Handler: mux,
-	}
-
-	return s
+	return mux
 }
 
 // Start 启动 HTTP 服务器

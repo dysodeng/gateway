@@ -129,3 +129,49 @@ func TestSSEProxy_RetryAndKeepalive(t *testing.T) {
 		t.Errorf("期望响应包含 'data: event1'")
 	}
 }
+
+// TestSSEProxy_NonSSEResponse 验证后端返回普通 HTTP 响应时不注入 SSE 特有内容
+func TestSSEProxy_NonSSEResponse(t *testing.T) {
+	// 后端返回普通 JSON 响应
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, `{"status":"ok"}`)
+	}))
+	defer backend.Close()
+
+	host, port := parseHostPort(t, backend.URL)
+	instance := &discovery.ServiceInstance{Host: host, Port: port}
+
+	proxy := NewSSEProxy()
+	proxy.Configure(&config.SSEConfig{
+		Retry:     3000,
+		Keepalive: 100 * time.Millisecond,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/chat", nil)
+	rec := httptest.NewRecorder()
+
+	proxy.Forward(rec, req, instance, false, "")
+
+	resp := rec.Result()
+	defer resp.Body.Close()
+
+	body := rec.Body.String()
+
+	// 验证响应体未被 retry 前缀污染
+	if strings.Contains(body, "retry:") {
+		t.Errorf("非 SSE 响应不应包含 retry 字段，实际内容:\n%s", body)
+	}
+
+	// 验证响应体未被 keepalive 注释污染
+	if strings.Contains(body, ": keepalive") {
+		t.Errorf("非 SSE 响应不应包含 keepalive 注释，实际内容:\n%s", body)
+	}
+
+	// 验证原始 JSON 响应完整
+	expected := `{"status":"ok"}`
+	if body != expected {
+		t.Errorf("期望响应体为 %q，实际得到 %q", expected, body)
+	}
+}

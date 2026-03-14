@@ -34,12 +34,17 @@ func (p *SSEProxy) Configure(cfg *config.SSEConfig) {
 	p.keepalive = cfg.Keepalive
 }
 
-// Forward 将 SSE 请求转发到后端并实时推送给客户端
+// Forward 将 SSE 请求转发到后端并实时推送给客户端。
+// 后端可能返回 SSE 流（text/event-stream）或普通 HTTP 响应，
+// 仅当后端实际返回 SSE 流时才注入 retry 和 keepalive。
 func (p *SSEProxy) Forward(w http.ResponseWriter, r *http.Request, instance *discovery.ServiceInstance, stripPrefix bool, prefix string) {
 	target := &url.URL{
 		Scheme: "http",
 		Host:   instance.Addr(),
 	}
+
+	// isSSE 用于通知 keepalive 协程后端是否返回了 SSE 流
+	isSSE := make(chan bool, 1)
 
 	proxy := &httputil.ReverseProxy{
 		// FlushInterval = -1 表示每次写入后立即 Flush，专为 SSE/流式场景设计
@@ -61,21 +66,28 @@ func (p *SSEProxy) Forward(w http.ResponseWriter, r *http.Request, instance *dis
 			req.Header.Del("Accept-Encoding")
 		},
 		ModifyResponse: func(resp *http.Response) error {
-			return p.injectSSEHeaders(resp)
+			ct := resp.Header.Get("Content-Type")
+			if strings.HasPrefix(ct, "text/event-stream") {
+				isSSE <- true
+				return p.injectSSEHeaders(resp)
+			}
+			// 非 SSE 响应，跳过 retry 注入
+			isSSE <- false
+			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			isSSE <- false
 			slog.Error("SSE 后端请求失败", "error", err)
 			http.Error(w, "后端服务不可用", http.StatusBadGateway)
 		},
 	}
 
-	// 启动 keepalive 心跳（需要在 proxy.ServeHTTP 之前设置，但 keepalive 需要 flusher）
-	// keepalive 通过 ModifyResponse 后在独立 goroutine 中发送
+	// keepalive 心跳仅在后端返回 SSE 流时才实际发送
 	if p.keepalive > 0 {
 		if flusher, ok := w.(http.Flusher); ok {
 			done := make(chan struct{})
 			defer close(done)
-			go p.sendKeepalive(w, flusher, done, r.Context().Done())
+			go p.sendKeepalive(w, flusher, done, r.Context().Done(), isSSE)
 		}
 	}
 
@@ -95,8 +107,20 @@ func (p *SSEProxy) injectSSEHeaders(resp *http.Response) error {
 	return nil
 }
 
-// sendKeepalive 定期发送 keepalive 注释行
-func (p *SSEProxy) sendKeepalive(w http.ResponseWriter, flusher http.Flusher, done <-chan struct{}, ctxDone <-chan struct{}) {
+// sendKeepalive 定期发送 keepalive 注释行，仅在确认后端返回 SSE 流后才开始
+func (p *SSEProxy) sendKeepalive(w http.ResponseWriter, flusher http.Flusher, done <-chan struct{}, ctxDone <-chan struct{}, isSSE <-chan bool) {
+	// 等待 ModifyResponse 确认响应类型
+	select {
+	case sse := <-isSSE:
+		if !sse {
+			return
+		}
+	case <-done:
+		return
+	case <-ctxDone:
+		return
+	}
+
 	ticker := time.NewTicker(p.keepalive)
 	defer ticker.Stop()
 	for {

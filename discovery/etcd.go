@@ -165,7 +165,7 @@ func (d *EtcdDiscovery) parseValue(serviceName, instanceID string, value []byte)
 	if err := json.Unmarshal(value, &inst); err != nil {
 		return ServiceInstance{}, fmt.Errorf("JSON 反序列化失败: %w", err)
 	}
-	return ServiceInstance{
+	si := ServiceInstance{
 		ID:           instanceID,
 		Name:         serviceName,
 		Host:         inst.Host,
@@ -175,7 +175,12 @@ func (d *EtcdDiscovery) parseValue(serviceName, instanceID string, value []byte)
 		Status:       inst.Status,
 		RegisteredAt: inst.RegisteredAt,
 		Metadata:     inst.Metadata,
-	}, nil
+	}
+	// 兼容旧数据：空 Status 默认视为 up
+	if si.Status == "" {
+		si.Status = StatusUp
+	}
+	return si, nil
 }
 
 // watchAll 通过前缀 Watch 监听所有服务实例变更
@@ -284,6 +289,7 @@ func (d *EtcdDiscovery) handleEvent(ev *clientv3.Event) {
 			logger.Info(ctx, "服务实例已更新",
 				logger.AddField("service", serviceName),
 				logger.AddField("instance", instanceID),
+				logger.AddField("status", inst.Status),
 			)
 		} else {
 			d.instances[serviceName] = append(instances, inst)
@@ -291,6 +297,7 @@ func (d *EtcdDiscovery) handleEvent(ev *clientv3.Event) {
 				logger.AddField("service", serviceName),
 				logger.AddField("instance", instanceID),
 				logger.AddField("addr", inst.Addr()),
+				logger.AddField("status", inst.Status),
 			)
 		}
 
@@ -315,7 +322,7 @@ func (d *EtcdDiscovery) handleEvent(ev *clientv3.Event) {
 	}
 }
 
-// GetInstances 获取指定服务名的所有实例（从本地缓存读取）
+// GetInstances 获取指定服务名的可用实例（从本地缓存读取，过滤非 up 状态）
 func (d *EtcdDiscovery) GetInstances(serviceName string) ([]ServiceInstance, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -325,17 +332,24 @@ func (d *EtcdDiscovery) GetInstances(serviceName string) ([]ServiceInstance, err
 		return nil, fmt.Errorf("服务 %q 未找到", serviceName)
 	}
 
-	// 返回深拷贝，避免调用方修改缓存（Metadata 是 map 引用类型）
-	result := make([]ServiceInstance, len(instances))
-	for i, inst := range instances {
-		result[i] = inst
+	// 返回深拷贝，仅包含可用实例
+	var result []ServiceInstance
+	for _, inst := range instances {
+		if !inst.IsAvailable() {
+			continue
+		}
+		cp := inst
 		if inst.Metadata != nil {
 			m := make(map[string]string, len(inst.Metadata))
 			for k, v := range inst.Metadata {
 				m[k] = v
 			}
-			result[i].Metadata = m
+			cp.Metadata = m
 		}
+		result = append(result, cp)
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("服务 %q 无可用实例", serviceName)
 	}
 	return result, nil
 }

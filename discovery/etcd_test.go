@@ -77,8 +77,8 @@ func TestEtcdDiscovery_GetInstances_FromCache(t *testing.T) {
 	d := &EtcdDiscovery{
 		instances: map[string][]ServiceInstance{
 			"user-svc": {
-				{ID: "inst-1", Name: "user-svc", Host: "10.0.0.1", Port: 8081, Weight: 1},
-				{ID: "inst-2", Name: "user-svc", Host: "10.0.0.2", Port: 8082, Weight: 2},
+				{ID: "inst-1", Name: "user-svc", Host: "10.0.0.1", Port: 8081, Weight: 1, Status: StatusUp},
+				{ID: "inst-2", Name: "user-svc", Host: "10.0.0.2", Port: 8082, Weight: 2, Status: StatusUp},
 			},
 		},
 	}
@@ -110,7 +110,7 @@ func TestEtcdDiscovery_GetInstances_ReturnsCopy(t *testing.T) {
 	d := &EtcdDiscovery{
 		instances: map[string][]ServiceInstance{
 			"svc": {
-				{ID: "1", Name: "svc", Host: "10.0.0.1", Port: 8080, Metadata: map[string]string{"k": "v"}},
+				{ID: "1", Name: "svc", Host: "10.0.0.1", Port: 8080, Status: StatusUp, Metadata: map[string]string{"k": "v"}},
 			},
 		},
 	}
@@ -159,7 +159,7 @@ func TestEtcdDiscovery_handleEvent_PutUpdate(t *testing.T) {
 		prefix: "/services/",
 		instances: map[string][]ServiceInstance{
 			"user-svc": {
-				{ID: "inst-1", Name: "user-svc", Host: "10.0.0.1", Port: 8081, Weight: 1},
+				{ID: "inst-1", Name: "user-svc", Host: "10.0.0.1", Port: 8081, Weight: 1, Status: StatusUp},
 			},
 		},
 	}
@@ -186,8 +186,8 @@ func TestEtcdDiscovery_handleEvent_Delete(t *testing.T) {
 		prefix: "/services/",
 		instances: map[string][]ServiceInstance{
 			"user-svc": {
-				{ID: "inst-1", Name: "user-svc", Host: "10.0.0.1", Port: 8081},
-				{ID: "inst-2", Name: "user-svc", Host: "10.0.0.2", Port: 8082},
+				{ID: "inst-1", Name: "user-svc", Host: "10.0.0.1", Port: 8081, Status: StatusUp},
+				{ID: "inst-2", Name: "user-svc", Host: "10.0.0.2", Port: 8082, Status: StatusUp},
 			},
 		},
 	}
@@ -213,7 +213,7 @@ func TestEtcdDiscovery_handleEvent_DeleteLast(t *testing.T) {
 		prefix: "/services/",
 		instances: map[string][]ServiceInstance{
 			"user-svc": {
-				{ID: "inst-1", Name: "user-svc", Host: "10.0.0.1", Port: 8081},
+				{ID: "inst-1", Name: "user-svc", Host: "10.0.0.1", Port: 8081, Status: StatusUp},
 			},
 		},
 	}
@@ -228,5 +228,82 @@ func TestEtcdDiscovery_handleEvent_DeleteLast(t *testing.T) {
 	_, err := d.GetInstances("user-svc")
 	if err == nil {
 		t.Fatal("expected error after deleting last instance, got nil")
+	}
+}
+
+func TestEtcdDiscovery_GetInstances_FiltersNonUpStatus(t *testing.T) {
+	d := &EtcdDiscovery{
+		instances: map[string][]ServiceInstance{
+			"user-svc": {
+				{ID: "inst-1", Name: "user-svc", Host: "10.0.0.1", Port: 8081, Status: StatusUp},
+				{ID: "inst-2", Name: "user-svc", Host: "10.0.0.2", Port: 8082, Status: StatusDown},
+				{ID: "inst-3", Name: "user-svc", Host: "10.0.0.3", Port: 8083, Status: StatusDraining},
+			},
+		},
+	}
+
+	instances, err := d.GetInstances("user-svc")
+	if err != nil {
+		t.Fatalf("GetInstances() error: %v", err)
+	}
+	if len(instances) != 1 {
+		t.Fatalf("got %d instances, want 1 (only up)", len(instances))
+	}
+	if instances[0].ID != "inst-1" {
+		t.Errorf("expected inst-1, got %s", instances[0].ID)
+	}
+}
+
+func TestEtcdDiscovery_GetInstances_AllDown(t *testing.T) {
+	d := &EtcdDiscovery{
+		instances: map[string][]ServiceInstance{
+			"user-svc": {
+				{ID: "inst-1", Name: "user-svc", Host: "10.0.0.1", Port: 8081, Status: StatusDown},
+			},
+		},
+	}
+
+	_, err := d.GetInstances("user-svc")
+	if err == nil {
+		t.Fatal("expected error when all instances are down, got nil")
+	}
+}
+
+func TestEtcdDiscovery_parseValue_EmptyStatusDefaultsToUp(t *testing.T) {
+	d := &EtcdDiscovery{}
+
+	value := []byte(`{"host":"10.0.0.1","port":8081,"weight":1,"status":""}`)
+	inst, err := d.parseValue("svc", "id", value)
+	if err != nil {
+		t.Fatalf("parseValue() error: %v", err)
+	}
+	if inst.Status != StatusUp {
+		t.Errorf("Status = %q, want %q", inst.Status, StatusUp)
+	}
+}
+
+func TestEtcdDiscovery_handleEvent_StatusChange(t *testing.T) {
+	d := &EtcdDiscovery{
+		prefix: "/services/",
+		instances: map[string][]ServiceInstance{
+			"user-svc": {
+				{ID: "inst-1", Name: "user-svc", Host: "10.0.0.1", Port: 8081, Status: StatusUp},
+			},
+		},
+	}
+
+	// 将实例状态改为 down
+	d.handleEvent(&clientv3.Event{
+		Type: clientv3.EventTypePut,
+		Kv: &mvccpb.KeyValue{
+			Key:   []byte("/services/user-svc/inst-1"),
+			Value: []byte(`{"host":"10.0.0.1","port":8081,"weight":1,"status":"down"}`),
+		},
+	})
+
+	// GetInstances 应过滤掉 down 状态的实例
+	_, err := d.GetInstances("user-svc")
+	if err == nil {
+		t.Fatal("expected error when instance is down, got nil")
 	}
 }

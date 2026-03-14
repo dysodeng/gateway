@@ -2,6 +2,13 @@ package discovery
 
 import "fmt"
 
+// 服务实例状态常量
+const (
+	StatusUp       = "up"       // 正常服务
+	StatusDown     = "down"     // 已下线
+	StatusDraining = "draining" // 优雅下线中
+)
+
 // ServiceInstance 表示一个后端服务实例
 type ServiceInstance struct {
 	ID           string
@@ -18,6 +25,11 @@ type ServiceInstance struct {
 // Addr 返回 host:port 格式的地址
 func (si ServiceInstance) Addr() string {
 	return fmt.Sprintf("%s:%d", si.Host, si.Port)
+}
+
+// IsAvailable 判断实例是否可接收新流量
+func (si ServiceInstance) IsAvailable() bool {
+	return si.Status == StatusUp
 }
 
 // Discovery 定义服务发现接口。

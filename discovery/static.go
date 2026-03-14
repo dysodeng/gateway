@@ -22,6 +22,7 @@ func NewStaticDiscovery(cfg *config.StaticDiscoveryConfig) *StaticDiscovery {
 				Host:     inst.Host,
 				Port:     inst.Port,
 				Weight:   inst.Weight,
+				Status:   StatusUp,
 				Metadata: inst.Metadata,
 			})
 		}

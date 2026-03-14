@@ -14,6 +14,13 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
+// 服务实例状态常量，与网关 discovery 侧保持一致
+const (
+	statusUp       = "up"       // 正常服务
+	statusDown     = "down"     // 已下线
+	statusDraining = "draining" // 优雅下线中
+)
+
 // instanceValue etcd 中存储的服务实例 JSON 结构，与网关 discovery 侧 etcdInstance 保持一致
 type instanceValue struct {
 	ID           string            `json:"id"`
@@ -38,7 +45,7 @@ type options struct {
 	password    string
 
 	// 健康检查配置
-	healthChecker sdk.HealthChecker
+	healthChecker  sdk.HealthChecker
 	healthInterval time.Duration
 }
 
@@ -88,7 +95,7 @@ func WithHealthChecker(checker sdk.HealthChecker, interval time.Duration) Option
 // registeredInstance 已注册实例的运行时状态
 type registeredInstance struct {
 	instance     sdk.ServiceInstance
-	registeredAt string             // 注册时间戳
+	registeredAt string // 注册时间戳
 	leaseID      clientv3.LeaseID
 	cancel       context.CancelFunc // 取消该实例的后台 goroutine
 	healthy      bool               // 当前健康状态
@@ -150,7 +157,7 @@ func (r *Registry) Register(ctx context.Context, instance sdk.ServiceInstance) e
 		Port:         instance.Port,
 		Weight:       instance.Weight,
 		Version:      instance.Version,
-		Status:       "healthy",
+		Status:       statusUp,
 		RegisteredAt: time.Now().Format(time.RFC3339),
 		Metadata:     instance.Metadata,
 	})
@@ -172,8 +179,8 @@ func (r *Registry) Register(ctx context.Context, instance sdk.ServiceInstance) e
 		instance:     instance,
 		registeredAt: time.Now().Format(time.RFC3339),
 		leaseID:      leaseID,
-		cancel:   instCancel,
-		healthy:  true,
+		cancel:       instCancel,
+		healthy:      true,
 	}
 
 	r.mu.Lock()
@@ -504,9 +511,9 @@ func (r *Registry) instanceKey(inst sdk.ServiceInstance) string {
 
 // buildValue 根据当前实例状态构建 JSON value
 func (r *Registry) buildValue(ri *registeredInstance) ([]byte, error) {
-	status := "healthy"
+	status := statusUp
 	if !ri.healthy {
-		status = "unhealthy"
+		status = statusDown
 	}
 	return json.Marshal(instanceValue{
 		ID:           ri.instance.ID,

@@ -84,20 +84,24 @@ func NewEtcdDiscovery(cfg *config.EtcdConfig) (*EtcdDiscovery, error) {
 		return nil, fmt.Errorf("加载 etcd 服务实例失败: %w", err)
 	}
 
-	// 展示已注册的服务实例
+	// 展示已注册的可用服务实例
 	d.mu.RLock()
-	if len(d.instances) == 0 {
-		logger.Info(ctx, "当前无已注册的服务实例")
-	} else {
-		for name, instances := range d.instances {
-			for _, inst := range instances {
-				logger.Info(ctx, "已注册服务实例",
-					logger.AddField("service", name),
-					logger.AddField("instance", inst.ID),
-					logger.AddField("addr", inst.Addr()),
-				)
+	hasAvailable := false
+	for name, instances := range d.instances {
+		for _, inst := range instances {
+			if !inst.IsAvailable() {
+				continue
 			}
+			hasAvailable = true
+			logger.Info(ctx, "已注册服务实例",
+				logger.AddField("service", name),
+				logger.AddField("instance", inst.ID),
+				logger.AddField("addr", inst.Addr()),
+			)
 		}
+	}
+	if !hasAvailable {
+		logger.Info(ctx, "当前无可用的服务实例")
 	}
 	d.mu.RUnlock()
 

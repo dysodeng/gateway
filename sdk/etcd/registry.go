@@ -141,7 +141,7 @@ func NewRegistry(endpoints []string, opts ...Option) (*Registry, error) {
 
 // Register 注册服务实例到 etcd
 // 内部自动维持心跳，KeepAlive 断开后自动重注册，配置了健康检查时不健康会自动摘除
-func (r *Registry) Register(ctx context.Context, instance sdk.ServiceInstance) error {
+func (r *Registry) Register(ctx context.Context, instance sdk.ServiceInstance) (sdk.ServiceInstance, error) {
 	if instance.Weight <= 0 {
 		instance.Weight = 1
 	}
@@ -161,7 +161,7 @@ func (r *Registry) Register(ctx context.Context, instance sdk.ServiceInstance) e
 		Metadata:     instance.Metadata,
 	})
 	if err != nil {
-		return fmt.Errorf("序列化实例数据失败: %w", err)
+		return sdk.ServiceInstance{}, fmt.Errorf("序列化实例数据失败: %w", err)
 	}
 
 	key := r.instanceKey(instance)
@@ -169,7 +169,7 @@ func (r *Registry) Register(ctx context.Context, instance sdk.ServiceInstance) e
 	// 执行首次注册
 	leaseID, err := r.grantAndPut(ctx, key, val)
 	if err != nil {
-		return err
+		return sdk.ServiceInstance{}, err
 	}
 
 	instCtx, instCancel := context.WithCancel(context.Background())
@@ -186,7 +186,7 @@ func (r *Registry) Register(ctx context.Context, instance sdk.ServiceInstance) e
 	if r.closed {
 		r.mu.Unlock()
 		instCancel()
-		return fmt.Errorf("注册器已关闭")
+		return sdk.ServiceInstance{}, fmt.Errorf("注册器已关闭")
 	}
 	r.instances[key] = ri
 	r.mu.Unlock()
@@ -202,7 +202,7 @@ func (r *Registry) Register(ctx context.Context, instance sdk.ServiceInstance) e
 		go r.healthCheckLoop(instCtx, key, ri)
 	}
 
-	return nil
+	return instance, nil
 }
 
 // Deregister 主动注销服务实例

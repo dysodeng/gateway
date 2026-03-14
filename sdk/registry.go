@@ -4,8 +4,9 @@ import "context"
 
 // Registry 服务注册接口
 type Registry interface {
-	// Register 注册服务实例，注册后自动维持心跳，支持断线重注册
-	Register(ctx context.Context, instance ServiceInstance) error
+	// Register 注册服务实例，注册后自动维持心跳，支持断线重注册。
+	// 返回填充后的 ServiceInstance（含自动生成的 ID 等）。
+	Register(ctx context.Context, instance ServiceInstance) (ServiceInstance, error)
 	// Deregister 注销服务实例（主动下线）
 	Deregister(ctx context.Context, instance ServiceInstance) error
 	// Close 关闭注册器，注销所有实例并释放资源

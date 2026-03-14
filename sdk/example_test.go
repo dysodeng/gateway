@@ -42,7 +42,7 @@ func Example_basic() {
 		},
 	}
 
-	if err = registry.Register(context.Background(), instance); err != nil {
+	if _, err = registry.Register(context.Background(), instance); err != nil {
 		fmt.Println("注册失败:", err)
 		return
 	}
@@ -79,7 +79,7 @@ func Example_withHealthCheck() {
 		Port: 8080,
 	}
 
-	if err = registry.Register(context.Background(), instance); err != nil {
+	if _, err = registry.Register(context.Background(), instance); err != nil {
 		fmt.Println("注册失败:", err)
 		return
 	}

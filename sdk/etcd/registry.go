@@ -16,9 +16,8 @@ import (
 
 // 服务实例状态常量，与网关 discovery 侧保持一致
 const (
-	statusUp       = "up"       // 正常服务
-	statusDown     = "down"     // 已下线
-	statusDraining = "draining" // 优雅下线中
+	statusUp   = "up"   // 正常服务
+	statusDown = "down" // 已下线
 )
 
 // instanceValue etcd 中存储的服务实例 JSON 结构，与网关 discovery 侧 etcdInstance 保持一致

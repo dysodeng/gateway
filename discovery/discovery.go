@@ -4,9 +4,8 @@ import "fmt"
 
 // 服务实例状态常量
 const (
-	StatusUp       = "up"       // 正常服务
-	StatusDown     = "down"     // 已下线
-	StatusDraining = "draining" // 优雅下线中
+	StatusUp   = "up"   // 正常服务
+	StatusDown = "down" // 已下线
 )
 
 // ServiceInstance 表示一个后端服务实例

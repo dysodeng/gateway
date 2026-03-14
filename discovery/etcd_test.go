@@ -237,7 +237,6 @@ func TestEtcdDiscovery_GetInstances_FiltersNonUpStatus(t *testing.T) {
 			"user-svc": {
 				{ID: "inst-1", Name: "user-svc", Host: "10.0.0.1", Port: 8081, Status: StatusUp},
 				{ID: "inst-2", Name: "user-svc", Host: "10.0.0.2", Port: 8082, Status: StatusDown},
-				{ID: "inst-3", Name: "user-svc", Host: "10.0.0.3", Port: 8083, Status: StatusDraining},
 			},
 		},
 	}
@@ -247,7 +246,7 @@ func TestEtcdDiscovery_GetInstances_FiltersNonUpStatus(t *testing.T) {
 		t.Fatalf("GetInstances() error: %v", err)
 	}
 	if len(instances) != 1 {
-		t.Fatalf("got %d instances, want 1 (only up)", len(instances))
+		t.Fatalf("got %d instances, want 1 (only up status)", len(instances))
 	}
 	if instances[0].ID != "inst-1" {
 		t.Errorf("expected inst-1, got %s", instances[0].ID)

@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"context"
 	"os"
 	"testing"
 
@@ -134,7 +135,7 @@ func TestEtcdDiscovery_handleEvent_Put(t *testing.T) {
 		instances: make(map[string][]ServiceInstance),
 	}
 
-	d.handleEvent(&clientv3.Event{
+	d.handleEvent(context.Background(), &clientv3.Event{
 		Type: clientv3.EventTypePut,
 		Kv: &mvccpb.KeyValue{
 			Key:   []byte("/services/user-svc/inst-1"),
@@ -164,7 +165,7 @@ func TestEtcdDiscovery_handleEvent_PutUpdate(t *testing.T) {
 		},
 	}
 
-	d.handleEvent(&clientv3.Event{
+	d.handleEvent(context.Background(), &clientv3.Event{
 		Type: clientv3.EventTypePut,
 		Kv: &mvccpb.KeyValue{
 			Key:   []byte("/services/user-svc/inst-1"),
@@ -192,7 +193,7 @@ func TestEtcdDiscovery_handleEvent_Delete(t *testing.T) {
 		},
 	}
 
-	d.handleEvent(&clientv3.Event{
+	d.handleEvent(context.Background(), &clientv3.Event{
 		Type: clientv3.EventTypeDelete,
 		Kv: &mvccpb.KeyValue{
 			Key: []byte("/services/user-svc/inst-1"),
@@ -218,7 +219,7 @@ func TestEtcdDiscovery_handleEvent_DeleteLast(t *testing.T) {
 		},
 	}
 
-	d.handleEvent(&clientv3.Event{
+	d.handleEvent(context.Background(), &clientv3.Event{
 		Type: clientv3.EventTypeDelete,
 		Kv: &mvccpb.KeyValue{
 			Key: []byte("/services/user-svc/inst-1"),
@@ -292,7 +293,7 @@ func TestEtcdDiscovery_handleEvent_StatusChange(t *testing.T) {
 	}
 
 	// 将实例状态改为 down
-	d.handleEvent(&clientv3.Event{
+	d.handleEvent(context.Background(), &clientv3.Event{
 		Type: clientv3.EventTypePut,
 		Kv: &mvccpb.KeyValue{
 			Key:   []byte("/services/user-svc/inst-1"),

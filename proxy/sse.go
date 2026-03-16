@@ -91,6 +91,10 @@ func (p *SSEProxy) Forward(w http.ResponseWriter, r *http.Request, instance *dis
 		}
 	}
 
+	// SSE 是长连接流式响应，需要禁用 WriteTimeout 避免连接被提前关闭
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Time{})
+
 	proxy.ServeHTTP(w, r)
 }
 

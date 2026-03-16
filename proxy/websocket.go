@@ -124,7 +124,13 @@ func relay(src, dst *websocket.Conn) {
 		if err != nil {
 			return
 		}
-		_, _ = io.Copy(writer, reader)
-		_ = writer.Close()
+		if _, err = io.Copy(writer, reader); err != nil {
+			slog.Warn("WebSocket 消息转发失败", "error", err)
+			return
+		}
+		if err = writer.Close(); err != nil {
+			slog.Warn("WebSocket writer 关闭失败", "error", err)
+			return
+		}
 	}
 }

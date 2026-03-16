@@ -38,6 +38,19 @@ func (w *WeightedRoundRobin) Select(instances []discovery.ServiceInstance, req *
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	// 构建当前实例 ID 集合
+	activeIDs := make(map[string]struct{}, len(instances))
+	for _, inst := range instances {
+		activeIDs[inst.ID] = struct{}{}
+	}
+
+	// 清理已下线的实例
+	for id := range w.weights {
+		if _, ok := activeIDs[id]; !ok {
+			delete(w.weights, id)
+		}
+	}
+
 	// 初始化或同步权重状态
 	for _, inst := range instances {
 		if _, ok := w.weights[inst.ID]; !ok {

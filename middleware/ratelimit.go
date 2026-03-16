@@ -83,11 +83,12 @@ func (tb *tokenBucket) allow() bool {
 
 // rateLimiter 限流器，维护所有路由+IP 组合的限流实例
 type rateLimiter struct {
-	mu        sync.Mutex
-	limiters  map[string]limiter
-	qps       int
-	routeName string
-	algorithm string // "sliding_window" | "token_bucket"
+	mu         sync.Mutex
+	limiters   map[string]limiter
+	lastAccess map[string]time.Time // 每个 key 的最后访问时间
+	qps        int
+	routeName  string
+	algorithm  string // "sliding_window" | "token_bucket"
 }
 
 // newRateLimiter 创建新的限流器实例
@@ -96,12 +97,15 @@ func newRateLimiter(globalCfg config.RateLimitConfig, routeCfg config.RouteRateL
 	if algorithm == "" {
 		algorithm = "sliding_window"
 	}
-	return &rateLimiter{
-		limiters:  make(map[string]limiter),
-		qps:       routeCfg.QPS,
-		routeName: routeName,
-		algorithm: algorithm,
+	rl := &rateLimiter{
+		limiters:   make(map[string]limiter),
+		lastAccess: make(map[string]time.Time),
+		qps:        routeCfg.QPS,
+		routeName:  routeName,
+		algorithm:  algorithm,
 	}
+	go rl.cleanup()
+	return rl
 }
 
 // getLimiter 获取或创建指定键对应的限流器
@@ -110,6 +114,7 @@ func (rl *rateLimiter) getLimiter(key string) limiter {
 	defer rl.mu.Unlock()
 
 	if l, ok := rl.limiters[key]; ok {
+		rl.lastAccess[key] = time.Now()
 		return l
 	}
 
@@ -130,7 +135,26 @@ func (rl *rateLimiter) getLimiter(key string) limiter {
 		}
 	}
 	rl.limiters[key] = l
+	rl.lastAccess[key] = time.Now()
 	return l
+}
+
+// cleanup 定期清理长时间未访问的限流器，防止内存泄漏
+func (rl *rateLimiter) cleanup() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		rl.mu.Lock()
+		now := time.Now()
+		for key, last := range rl.lastAccess {
+			if now.Sub(last) > 10*time.Minute {
+				delete(rl.limiters, key)
+				delete(rl.lastAccess, key)
+			}
+		}
+		rl.mu.Unlock()
+	}
 }
 
 // buildKey 根据路由名称和客户端 IP 构造限流键

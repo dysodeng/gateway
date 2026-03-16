@@ -205,7 +205,7 @@ func (d *EtcdDiscovery) watchAll(ctx context.Context) {
 				continue
 			}
 			for _, ev := range resp.Events {
-				d.handleEvent(ev)
+				d.handleEvent(ctx, ev)
 			}
 		}
 	}
@@ -257,7 +257,7 @@ func (d *EtcdDiscovery) heartbeat(ctx context.Context) {
 }
 
 // handleEvent 处理单个 etcd Watch 事件
-func (d *EtcdDiscovery) handleEvent(ev *clientv3.Event) {
+func (d *EtcdDiscovery) handleEvent(ctx context.Context, ev *clientv3.Event) {
 	serviceName, instanceID := d.parseKey(string(ev.Kv.Key))
 	if serviceName == "" {
 		return
@@ -265,8 +265,6 @@ func (d *EtcdDiscovery) handleEvent(ev *clientv3.Event) {
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-
-	ctx := context.Background()
 
 	switch ev.Type {
 	case clientv3.EventTypePut:

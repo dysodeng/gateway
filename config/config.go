@@ -45,6 +45,9 @@ type ServerConfig struct {
 	Listen             string        `mapstructure:"listen"`
 	MaxRequestBodySize int64         `mapstructure:"max_request_body_size"`
 	ShutdownTimeout    time.Duration `mapstructure:"shutdown_timeout"`
+	ReadTimeout        time.Duration `mapstructure:"read_timeout"`  // 默认 15s
+	WriteTimeout       time.Duration `mapstructure:"write_timeout"` // 默认 30s
+	IdleTimeout        time.Duration `mapstructure:"idle_timeout"`  // 默认 120s
 }
 
 // LogConfig 日志配置

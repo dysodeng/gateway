@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync/atomic"
+	"time"
 
 	"github.com/dysodeng/gateway/config"
 	"github.com/dysodeng/gateway/discovery"
@@ -36,11 +37,27 @@ func New(cfg *config.Config, disc discovery.Discovery) *Server {
 	h := s.buildHandler(cfg)
 	s.handler.Store(h)
 
+	readTimeout := cfg.Server.ReadTimeout
+	if readTimeout == 0 {
+		readTimeout = 15 * time.Second
+	}
+	writeTimeout := cfg.Server.WriteTimeout
+	if writeTimeout == 0 {
+		writeTimeout = 30 * time.Second
+	}
+	idleTimeout := cfg.Server.IdleTimeout
+	if idleTimeout == 0 {
+		idleTimeout = 120 * time.Second
+	}
+
 	s.httpServer = &http.Server{
 		Addr: cfg.Server.Listen,
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			s.handler.Load().(http.Handler).ServeHTTP(w, r)
 		}),
+		ReadTimeout:  readTimeout,
+		WriteTimeout: writeTimeout,
+		IdleTimeout:  idleTimeout,
 	}
 	return s
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/dysodeng/gateway/config"
 	"github.com/golang-jwt/jwt/v5"
@@ -130,6 +131,10 @@ func newOAuth2Auth(cfg *config.OAuth2Config, optional bool) Middleware {
 	if cfg == nil {
 		return func(next http.Handler) http.Handler { return next }
 	}
+
+	// 创建带超时的 HTTP 客户端，避免使用无超时的 http.DefaultClient
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// 从 Authorization 头获取 Bearer token
@@ -159,7 +164,7 @@ func newOAuth2Auth(cfg *config.OAuth2Config, optional bool) Middleware {
 			introspectReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			introspectReq.SetBasicAuth(cfg.ClientID, cfg.ClientSecret)
 
-			resp, err := http.DefaultClient.Do(introspectReq)
+			resp, err := httpClient.Do(introspectReq)
 			if err != nil {
 				http.Error(w, "认证服务不可用", http.StatusServiceUnavailable)
 				return

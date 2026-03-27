@@ -102,3 +102,13 @@ routes:
     middleware:                       # 路由级中间件
       auth:
         scheme: "app_user"           # 引用 auth_schemes 中定义的认证方案
+        mode: "required"             # 默认鉴权模式: required（必须鉴权）/ optional（可选）/ none（跳过）
+        rules:                       # 子路径鉴权规则覆盖（可选，按顺序匹配，首条命中生效）
+          - path: "/login"           # 精确匹配: /api/v1/users/login 无需鉴权
+            mode: "none"
+          - path: "/register"        # 精确匹配: /api/v1/users/register 无需鉴权
+            mode: "none"
+          - path: "/public/*"        # 通配符匹配: /api/v1/users/public/ 下所有路径无需鉴权
+            mode: "none"
+          - path: "/feed"            # 精确匹配: /api/v1/users/feed 鉴权可选
+            mode: "optional"

@@ -11,19 +11,38 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// NewAuth 创建认证中间件，根据认证方案类型分发到对应的认证逻辑
-// optional 为 true 时，无 token 放行，有 token 则验证
-func NewAuth(scheme config.AuthSchemeConfig, optional bool) Middleware {
-	switch scheme.Type {
-	case "jwt":
-		return newJWTAuth(scheme.JWT, optional)
-	case "api_key":
-		return newAPIKeyAuth(scheme.APIKey, optional)
-	case "oauth2":
-		return newOAuth2Auth(scheme.OAuth2, optional)
-	default:
-		// 未知认证类型，直接通过
-		return func(next http.Handler) http.Handler { return next }
+// NewAuth 创建认证中间件
+// 根据路由前缀和子路径规则动态决定鉴权模式（required/optional/none）
+func NewAuth(scheme config.AuthSchemeConfig, authCfg config.RouteAuthConfig, routePrefix string) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// 根据请求路径解析生效的鉴权模式
+			mode := authCfg.ResolveMode(r.URL.Path, routePrefix)
+
+			// none 模式直接放行
+			if mode == "none" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			optional := mode == "optional"
+
+			// 分发到对应的认证处理器
+			var handler Middleware
+			switch scheme.Type {
+			case "jwt":
+				handler = newJWTAuth(scheme.JWT, optional)
+			case "api_key":
+				handler = newAPIKeyAuth(scheme.APIKey, optional)
+			case "oauth2":
+				handler = newOAuth2Auth(scheme.OAuth2, optional)
+			default:
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			handler(next).ServeHTTP(w, r)
+		})
 	}
 }
 
@@ -169,7 +188,7 @@ func newOAuth2Auth(cfg *config.OAuth2Config, optional bool) Middleware {
 				http.Error(w, "认证服务不可用", http.StatusServiceUnavailable)
 				return
 			}
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			var result map[string]interface{}
 			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {

@@ -393,3 +393,137 @@ func TestOAuth2Auth_Optional_NoToken(t *testing.T) {
 		t.Errorf("可选认证无 token 应放行，期望 200，实际: %d", w.Code)
 	}
 }
+
+// --- 路径级鉴权模式（NewAuth + ResolveMode）测试 ---
+
+// TestNewAuth_PathBasedMode_None 路径规则匹配 none 模式时直接放行
+func TestNewAuth_PathBasedMode_None(t *testing.T) {
+	scheme := config.AuthSchemeConfig{
+		Type: "jwt",
+		JWT: &config.JWTConfig{
+			Secret:     testJWTSecret,
+			Algorithms: []string{"HS256"},
+			Header:     "Authorization",
+		},
+	}
+	authCfg := config.RouteAuthConfig{
+		Scheme: "app_user",
+		Mode:   "required",
+		Rules: []config.AuthRuleConfig{
+			{Path: "/login", Mode: "none"},
+		},
+	}
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := NewAuth(scheme, authCfg, "/api/v1/users")(next)
+
+	// /api/v1/users/login 命中 none 规则，无 token 也应放行
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/login", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("none 模式应放行，期望 200，实际: %d", w.Code)
+	}
+}
+
+// TestNewAuth_PathBasedMode_Required 路径未命中规则时使用默认 required 模式
+func TestNewAuth_PathBasedMode_Required(t *testing.T) {
+	scheme := config.AuthSchemeConfig{
+		Type: "jwt",
+		JWT: &config.JWTConfig{
+			Secret:     testJWTSecret,
+			Algorithms: []string{"HS256"},
+			Header:     "Authorization",
+		},
+	}
+	authCfg := config.RouteAuthConfig{
+		Scheme: "app_user",
+		Mode:   "required",
+		Rules: []config.AuthRuleConfig{
+			{Path: "/login", Mode: "none"},
+		},
+	}
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := NewAuth(scheme, authCfg, "/api/v1/users")(next)
+
+	// /api/v1/users/profile 未命中规则，使用 required，无 token 应返回 401
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/profile", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("required 模式无 token 应返回 401，实际: %d", w.Code)
+	}
+}
+
+// TestNewAuth_PathBasedMode_Optional 路径规则匹配 optional 模式
+func TestNewAuth_PathBasedMode_Optional(t *testing.T) {
+	scheme := config.AuthSchemeConfig{
+		Type: "jwt",
+		JWT: &config.JWTConfig{
+			Secret:     testJWTSecret,
+			Algorithms: []string{"HS256"},
+			Header:     "Authorization",
+		},
+	}
+	authCfg := config.RouteAuthConfig{
+		Scheme: "app_user",
+		Mode:   "required",
+		Rules: []config.AuthRuleConfig{
+			{Path: "/feed", Mode: "optional"},
+		},
+	}
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := NewAuth(scheme, authCfg, "/api/v1/users")(next)
+
+	// /api/v1/users/feed 命中 optional 规则，无 token 应放行
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/feed", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("optional 模式无 token 应放行，期望 200，实际: %d", w.Code)
+	}
+}
+
+// TestNewAuth_PathBasedMode_WildcardMatch 通配符路径规则匹配
+func TestNewAuth_PathBasedMode_WildcardMatch(t *testing.T) {
+	scheme := config.AuthSchemeConfig{
+		Type: "jwt",
+		JWT: &config.JWTConfig{
+			Secret:     testJWTSecret,
+			Algorithms: []string{"HS256"},
+			Header:     "Authorization",
+		},
+	}
+	authCfg := config.RouteAuthConfig{
+		Scheme: "app_user",
+		Mode:   "required",
+		Rules: []config.AuthRuleConfig{
+			{Path: "/public/*", Mode: "none"},
+		},
+	}
+
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := NewAuth(scheme, authCfg, "/api/v1/users")(next)
+
+	// /api/v1/users/public/avatar 命中通配符规则
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/users/public/avatar", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("通配符 none 模式应放行，期望 200，实际: %d", w.Code)
+	}
+}

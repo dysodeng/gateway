@@ -1,6 +1,9 @@
 package config
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 const (
 	VarPath  string = "var"
@@ -204,8 +207,69 @@ type RouteMiddlewareConfig struct {
 
 // RouteAuthConfig 路由认证中间件配置
 type RouteAuthConfig struct {
-	Scheme   string `mapstructure:"scheme"`
-	Optional bool   `mapstructure:"optional"` // 可选认证：无 token 放行，有 token 则验证
+	Scheme   string           `mapstructure:"scheme"`
+	Optional bool             `mapstructure:"optional"` // 已废弃，保留做向后兼容；优先使用 Mode
+	Mode     string           `mapstructure:"mode"`     // 鉴权模式: required / optional / none，默认 required
+	Rules    []AuthRuleConfig `mapstructure:"rules"`    // 子路径鉴权规则覆盖
+}
+
+// AuthRuleConfig 子路径鉴权规则
+type AuthRuleConfig struct {
+	Path string `mapstructure:"path"` // 相对于路由 prefix 的子路径，支持精确匹配和通配符（如 /public/*）
+	Mode string `mapstructure:"mode"` // 鉴权模式: required / optional / none
+}
+
+// ResolveMode 根据请求路径解析生效的鉴权模式
+// requestPath 是完整请求路径，prefix 是路由前缀
+func (c *RouteAuthConfig) ResolveMode(requestPath, prefix string) string {
+	// 提取相对于路由前缀的子路径
+	subPath := strings.TrimPrefix(requestPath, prefix)
+	if subPath == "" {
+		subPath = "/"
+	}
+
+	// 按配置顺序匹配规则，首条命中即生效
+	for _, rule := range c.Rules {
+		if matchPath(rule.Path, subPath) {
+			return normalizeMode(rule.Mode)
+		}
+	}
+
+	// 无规则命中时使用默认模式
+	return c.defaultMode()
+}
+
+// defaultMode 返回路由的默认鉴权模式
+func (c *RouteAuthConfig) defaultMode() string {
+	if c.Mode != "" {
+		return normalizeMode(c.Mode)
+	}
+	// 向后兼容: 未配置 mode 时根据 optional 字段判断
+	if c.Optional {
+		return "optional"
+	}
+	return "required"
+}
+
+// matchPath 匹配子路径，支持精确匹配和通配符
+func matchPath(pattern, subPath string) bool {
+	// 通配符匹配: /public/* 匹配 /public/ 下的所有子路径
+	if strings.HasSuffix(pattern, "/*") {
+		prefix := strings.TrimSuffix(pattern, "/*")
+		return subPath == prefix || strings.HasPrefix(subPath, prefix+"/")
+	}
+	// 精确匹配
+	return subPath == pattern
+}
+
+// normalizeMode 规范化鉴权模式，无效值默认为 required
+func normalizeMode(mode string) string {
+	switch mode {
+	case "required", "optional", "none":
+		return mode
+	default:
+		return "required"
+	}
 }
 
 // RouteRateLimitConfig 路由限流中间件配置
